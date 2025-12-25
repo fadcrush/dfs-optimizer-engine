@@ -1,0 +1,72 @@
+"""
+Example: Validate Projection Accuracy
+Compare yesterday's projections to actual results
+"""
+
+import os
+import sys
+import django
+import pandas as pd
+from datetime import datetime, timedelta
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dfs_site.settings')
+django.setup()
+
+from django.conf import settings
+from pathlib import Path
+from analysis.nba.projection_pipeline import ProjectionComparer
+from apps.nba.models import NbaSlate, NbaPlayerPerformance
+
+# Yesterday's date
+yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+
+print(f"Validating projections for {yesterday}...\n")
+
+# Load projections
+proj_file = Path(settings.EXPORT_ROOT) / 'projections' / f'FD_{yesterday}_full.csv'
+
+if not proj_file.exists():
+    print(f"✗ No projections found for {yesterday}")
+    sys.exit(1)
+
+projections = pd.read_csv(proj_file)
+print(f"✓ Loaded {len(projections)} projections")
+
+# Load actuals from database
+try:
+    slate = NbaSlate.objects.get(date=yesterday, site='FD')
+    actuals = NbaPlayerPerformance.objects.filter(slate=slate)
+    
+    if not actuals.exists():
+        print(f"✗ No actual results found for {yesterday}")
+        sys.exit(1)
+    
+    actuals_df = pd.DataFrame(list(actuals.values()))
+    print(f"✓ Loaded {len(actuals_df)} actual results")
+    
+    # Compare
+    comparer = ProjectionComparer()
+    metrics = comparer.compare_to_actuals(projections, actuals_df)
+    
+    print(f"\n{'='*50}")
+    print("ACCURACY METRICS")
+    print('='*50)
+    print(f"Mean Absolute Error: {metrics['mean_absolute_error']:.2f} points")
+    print(f"Root Mean Squared Error: {metrics['root_mean_squared_error']:.2f} points")
+    print(f"Mean % Error: {metrics['mean_percentage_error']:.1f}%")
+    print(f"R² Score: {metrics['r_squared']:.3f}")
+    print(f"\nWithin 5 points: {metrics['within_5_points']:.1f}%")
+    print(f"Within 10 points: {metrics['within_10_points']:.1f}%")
+    print(f"\nOver-projected: {metrics['over_projected']:.1f}%")
+    print(f"Under-projected: {metrics['under_projected']:.1f}%")
+    
+    print(f"\n{'='*50}")
+    print("BIGGEST MISSES")
+    print('='*50)
+    for miss in metrics['biggest_misses'][:5]:
+        print(f"{miss['player_name']:20} | Proj: {miss['base_projection']:5.1f} | Actual: {miss['actual_points']:5.1f} | Diff: {miss['error']:+5.1f}")
+
+except NbaSlate.DoesNotExist:
+    print(f"✗ Slate not found for {yesterday}")
+    sys.exit(1)

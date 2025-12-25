@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}Projections - NBA{% endblock %}
+{% block nba_active %}active{% endblock %}
+
+{% block content %}
+<h1>📊 NBA Projection System</h1>
+<p class="muted">Generate custom projections using multiple data sources</p>
+
+<div class="card">
+    <h2>🚀 Generate New Projections</h2>
+    
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="grid two">
+            <div>
+                <label><b>Target Date</b></label>
+                <input type="date" name="date" value="{{ request.POST.date|default:today }}" required>
+            </div>
+            
+            <div>
+                <label><b>Site</b></label>
+                <select name="site">
+                    <option value="FD">FanDuel</option>
+                    <option value="DK">DraftKings</option>
+                </select>
+            </div>
+        </div>
+        
+        <div style="margin-top:14px;">
+            <button type="submit">🔮 Generate Projections</button>
+        </div>
+    </form>
+    
+    {% if error %}
+        <div class="alert error" style="margin-top:14px;">
+            <b>Error:</b> {{ error }}
+        </div>
+    {% endif %}
+    
+    {% if note %}
+        <div class="alert" style="margin-top:14px;">{{ note }}</div>
+    {% endif %}
+</div>
+
+{% if projection_stats %}
+<div class="card">
+    <h2>📈 Projection Statistics</h2>
+    
+    <div class="grid three">
+        <div class="stat-card">
+            <div class="stat-label">Total Players</div>
+            <div class="stat-value">{{ projection_stats.total_projections }}</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-label">Avg Projection</div>
+            <div class="stat-value">{{ projection_stats.avg_projection|floatformat:1 }}</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-label">High Value Plays</div>
+            <div class="stat-value">{{ projection_stats.high_value_plays }}</div>
+            <div class="stat-sublabel">Value > 5.5</div>
+        </div>
+    </div>
+    
+    {% if files %}
+    <h3 style="margin-top:20px;">📁 Generated Files</h3>
+    <div class="file-list">
+        {% for key, path in files.items %}
+        <div class="file-item">
+            <span class="file-type">{{ key }}</span>
+            <a href="/nba/download/?path={{ path }}" class="file-link">Download</a>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>📚 Recent Projections</h2>
+    
+    {% if recent_projections %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>File</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for proj in recent_projections %}
+            <tr>
+                <td>{{ proj.date }}</td>
+                <td>{{ proj.file }}</td>
+                <td>
+                    <a href="/nba/download/?path={{ proj.path }}">Download</a>
+                    <button onclick="compareProjection('{{ proj.date }}', 'FD')" class="small">Compare</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No recent projections found. Generate your first projection above!</p>
+    {% endif %}
+</div>
+
+{% if accuracy_history %}
+<div class="card">
+    <h2>🎯 Accuracy History</h2>
+    
+    <div style="overflow-x:auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>MAE</th>
+                    <th>RMSE</th>
+                    <th>R²</th>
+                    <th>Within 5pts</th>
+                    <th>Within 10pts</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for acc in accuracy_history %}
+                <tr>
+                    <td>{{ acc.date }}</td>
+                    <td>{{ acc.mae|floatformat:2 }}</td>
+                    <td>{{ acc.rmse|floatformat:2 }}</td>
+                    <td>{{ acc.r2|floatformat:3 }}</td>
+                    <td>{{ acc.within_5|floatformat:1 }}%</td>
+                    <td>{{ acc.within_10|floatformat:1 }}%</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<style>
+.stat-card {
+    padding: 16px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid var(--border);
+}
+
+.stat-label {
+    font-size: 0.85em;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    font-size: 2em;
+    font-weight: bold;
+    margin: 8px 0;
+}
+
+.stat-sublabel {
+    font-size: 0.9em;
+    color: var(--muted);
+}
+
+.file-list {
+    margin-top: 12px;
+}
+
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.file-type {
+    font-weight: bold;
+    text-transform: uppercase;
+    color: var(--primary);
+}
+
+.file-link {
+    padding: 4px 12px;
+    background: var(--primary);
+    color: white;
+    border-radius: 4px;
+    text-decoration: none;
+}
+
+button.small {
+    padding: 4px 10px;
+    font-size: 0.9em;
+    margin-left: 8px;
+}
+</style>
+
+<script>
+function compareProjection(date, site) {
+    if (!confirm(`Compare projections for ${date} to actual results?`)) {
+        return;
+    }
+    
+    fetch('/nba/api/compare-projections/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: `date=${date}&site=${site}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Comparison complete!\n\nMAE: ${data.metrics.mean_absolute_error.toFixed(2)}\nRMSE: ${data.metrics.root_mean_squared_error.toFixed(2)}\nR²: ${data.metrics.r_squared.toFixed(3)}`);
+            location.reload();
+        } else {
+            alert(`Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        alert(`Request failed: ${error}`);
+    });
+}
+</script>
+
+{% endblock %}

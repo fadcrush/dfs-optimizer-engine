@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% block title %}Lineup Selector - NBA{% endblock %}
+{% block nba_active %}active{% endblock %}
+
+{% block content %}
+<h1>🎯 Optimal Lineup Selection</h1>
+<p class="muted">Select the best subset of lineups based on projection, ownership, and diversification</p>
+
+<div class="card">
+    <h2>📤 Upload Lineups</h2>
+    <form method="post" enctype="multipart/form-data" id="selectorForm">
+        {% csrf_token %}
+        
+        <div class="grid two">
+            <div>
+                <label><b>Lineups CSV</b></label><br>
+                <input type="file" name="lineups_file" accept=".csv" required>
+                <div class="muted">Upload generated lineups with projections and ownership</div>
+            </div>
+            
+            <div>
+                <label><b>Number to Select</b></label>
+                <input type="number" name="n_select" value="20" min="1" max="150">
+                <div class="muted">How many lineups to select from your pool</div>
+            </div>
+        </div>
+        
+        <h3 style="margin-top:20px;">⚙️ Selection Parameters</h3>
+        
+        <div class="grid three">
+            <div>
+                <label><b>Diversification Weight</b></label>
+                <input type="range" name="diversification_weight" min="0" max="1" step="0.1" value="0.3" 
+                       id="divWeight" oninput="updateDivLabel()">
+                <div class="muted">
+                    <span id="divLabel">30%</span> - Higher = more low-owned focus
+                </div>
+            </div>
+            
+            <div>
+                <label><b>Max Correlation</b></label>
+                <input type="range" name="max_correlation" min="0.5" max="1" step="0.05" value="0.8" 
+                       id="corrWeight" oninput="updateCorrLabel()">
+                <div class="muted">
+                    <span id="corrLabel">80%</span> - Max similarity between lineups
+                </div>
+            </div>
+            
+            <div>
+                <label><b>Strategy</b></label>
+                <select id="strategy" onchange="applyStrategy()">
+                    <option value="balanced">Balanced</option>
+                    <option value="chalky">Chalky (High Ownership)</option>
+                    <option value="contrarian">Contrarian (Low Ownership)</option>
+                    <option value="high_ceiling">High Ceiling</option>
+                </select>
+            </div>
+        </div>
+        
+        <h3 style="margin-top:20px;">🔍 Filters</h3>
+        
+        <div class="grid two">
+            <div>
+                <label><b>Projection Range</b></label>
+                <div style="display:flex; gap:10px;">
+                    <input type="number" name="min_projection" value="0" step="0.1" 
+                           placeholder="Min" style="flex:1;">
+                    <input type="number" name="max_projection" value="500" step="0.1" 
+                           placeholder="Max" style="flex:1;">
+                </div>
+            </div>
+            
+            <div>
+                <label><b>Ownership Range (%)</b></label>
+                <div style="display:flex; gap:10px;">
+                    <input type="number" name="min_ownership" value="0" step="0.1" 
+                           placeholder="Min %" style="flex:1;">
+                    <input type="number" name="max_ownership" value="100" step="0.1" 
+                           placeholder="Max %" style="flex:1;">
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top:20px;">
+            <button type="submit">🎯 Select Optimal Lineups</button>
+            <button type="reset" class="secondary">Reset</button>
+        </div>
+    </form>
+    
+    {% if error %}
+        <div class="alert error" style="margin-top:14px;">
+            <b>Error:</b> {{ error }}
+        </div>
+    {% endif %}
+    
+    {% if note %}
+        <div class="alert" style="margin-top:14px;">{{ note }}</div>
+    {% endif %}
+</div>
+
+{% if selection_stats %}
+<div class="card">
+    <h2>📊 Selection Statistics</h2>
+    
+    <div class="grid three">
+        <div class="stat-card">
+            <div class="stat-label">Selected Lineups</div>
+            <div class="stat-value">{{ selected_count }}/{{ total_lineups }}</div>
+            <div class="stat-sublabel">{{ selection_stats.selection_rate|floatformat:1 }}% of pool</div>
+        </div>
+        
+        <div class="stat-card good">
+            <div class="stat-label">Avg Projection</div>
+            <div class="stat-value">{{ selection_stats.avg_projection|floatformat:1 }}</div>
+            <div class="stat-sublabel">
+                {% if selection_stats.projection_improvement > 0 %}
+                    +{{ selection_stats.projection_improvement|floatformat:1 }}% vs pool
+                {% else %}
+                    {{ selection_stats.projection_improvement|floatformat:1 }}% vs pool
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="stat-card warn">
+            <div class="stat-label">Avg Ownership</div>
+            <div class="stat-value">{{ selection_stats.avg_ownership|floatformat:1 }}%</div>
+            <div class="stat-sublabel">
+                {% if selection_stats.ownership_reduction > 0 %}
+                    -{{ selection_stats.ownership_reduction|floatformat:1 }}% vs pool
+                {% else %}
+                    {{ selection_stats.ownership_reduction|floatformat:1 }}% vs pool
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="grid two" style="margin-top:20px;">
+        <div>
+            <h4>Projection Stats</h4>
+            <table class="simple-table">
+                <tr>
+                    <td>Average:</td>
+                    <td><b>{{ selection_stats.avg_projection|floatformat:2 }}</b></td>
+                </tr>
+                <tr>
+                    <td>Maximum:</td>
+                    <td><b>{{ selection_stats.max_projection|floatformat:2 }}</b></td>
+                </tr>
+                <tr>
+                    <td>Minimum:</td>
+                    <td><b>{{ selection_stats.min_projection|floatformat:2 }}</b></td>
+                </tr>
+                <tr>
+                    <td>Std Dev:</td>
+                    <td><b>{{ selection_stats.std_projection|floatformat:2 }}</b></td>
+                </tr>
+            </table>
+        </div>
+        
+        <div>
+            <h4>Ownership Stats</h4>
+            <table class="simple-table">
+                <tr>
+                    <td>Average:</td>
+                    <td><b>{{ selection_stats.avg_ownership|floatformat:2 }}%</b></td>
+                </tr>
+                <tr>
+                    <td>Maximum:</td>
+                    <td><b>{{ selection_stats.max_ownership|floatformat:2 }}%</b></td>
+                </tr>
+                <tr>
+                    <td>Minimum:</td>
+                    <td><b>{{ selection_stats.min_ownership|floatformat:2 }}%</b></td>
+                </tr>
+                <tr>
+                    <td>Quality Score:</td>
+                    <td><b>{{ selection_stats.avg_quality_score|floatformat:1 }}</b></td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if lineups %}
+<div class="card">
+    <h2>✅ Selected Optimal Lineups</h2>
+    <p class="muted">Top {{ lineups|length }} lineups selected based on your parameters</p>
+    
+    <div style="margin-bottom:14px;">
+        <form method="post" action="{% url 'export_selected_lineups' %}">
+            {% csrf_token %}
+            <input type="hidden" name="mode" value="session">
+            <button type="submit">📥 Export All Selected (CSV)</button>
+        </form>
+    </div>
+    
+    <div style="overflow-x:auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Lineup #</th>
+                    <th>Projection</th>
+                    <th>Avg Own%</th>
+                    <th>Quality Score</th>
+                    <th>Proj Score</th>
+                    <th>Own Score</th>
+                    {% if lineups.0.value_score %}
+                    <th>Value</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for lineup in lineups %}
+                <tr>
+                    <td>{{ forloop.counter }}</td>
+                    <td><b>#{{ lineup.lineup_id|default:forloop.counter }}</b></td>
+                    <td><b>{{ lineup.projected_points|floatformat:2 }}</b></td>
+                    <td>{{ lineup.avg_ownership|floatformat:1 }}%</td>
+                    <td class="good"><b>{{ lineup.quality_score|floatformat:1 }}</b></td>
+                    <td>{{ lineup.projection_score|floatformat:0 }}</td>
+                    <td>{{ lineup.ownership_score|floatformat:0 }}</td>
+                    {% if lineup.value_score %}
+                    <td>{{ lineup.value_score|floatformat:2 }}</td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<style>
+.stat-card {
+    padding: 16px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid var(--border);
+}
+
+.stat-card.good {
+    border-color: var(--success);
+    background: rgba(46, 160, 67, 0.1);
+}
+
+.stat-card.warn {
+    border-color: var(--warning);
+    background: rgba(251, 189, 35, 0.1);
+}
+
+.stat-label {
+    font-size: 0.85em;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    font-size: 2em;
+    font-weight: bold;
+    margin: 8px 0;
+}
+
+.stat-sublabel {
+    font-size: 0.9em;
+    color: var(--muted);
+}
+
+.simple-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.simple-table td {
+    padding: 6px 0;
+    border: none;
+}
+
+.simple-table td:first-child {
+    color: var(--muted);
+}
+
+.simple-table td:last-child {
+    text-align: right;
+}
+</style>
+
+<script>
+function updateDivLabel() {
+    const val = document.getElementById('divWeight').value;
+    document.getElementById('divLabel').textContent = (val * 100).toFixed(0) + '%';
+}
+
+function updateCorrLabel() {
+    const val = document.getElementById('corrWeight').value;
+    document.getElementById('corrLabel').textContent = (val * 100).toFixed(0) + '%';
+}
+
+function applyStrategy() {
+    const strategy = document.getElementById('strategy').value;
+    const divWeight = document.getElementById('divWeight');
+    const corrWeight = document.getElementById('corrWeight');
+    const minOwn = document.querySelector('input[name="min_ownership"]');
+    const maxOwn = document.querySelector('input[name="max_ownership"]');
+    
+    switch(strategy) {
+        case 'chalky':
+            divWeight.value = 0.1;
+            minOwn.value = 20;
+            maxOwn.value = 100;
+            break;
+        case 'contrarian':
+            divWeight.value = 0.7;
+            minOwn.value = 0;
+            maxOwn.value = 30;
+            break;
+        case 'high_ceiling':
+            divWeight.value = 0.2;
+            corrWeight.value = 0.6;
+            break;
+        default: // balanced
+            divWeight.value = 0.3;
+            corrWeight.value = 0.8;
+            minOwn.value = 0;
+            maxOwn.value = 100;
+    }
+    
+    updateDivLabel();
+    updateCorrLabel();
+}
+</script>
+
+{% endblock %}

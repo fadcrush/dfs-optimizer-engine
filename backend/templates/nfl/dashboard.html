@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}NFL Dashboard{% endblock %}
+{% block nfl_active %}active{% endblock %}
+
+{% block content %}
+<h1>🏈 NFL DFS Dashboard</h1>
+
+<div class="card">
+  <h2>Upload NFL Files</h2>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="grid two">
+      <div>
+        <label><b>Lineups CSV</b></label><br>
+        <input type="file" name="lineups_file" accept=".csv">
+      </div>
+      <div>
+        <label><b>Projections CSV</b></label><br>
+        <input type="file" name="projections_file" accept=".csv">
+      </div>
+    </div>
+    <div style="margin-top:14px;">
+      <button type="submit">🏈 Analyze</button>
+    </div>
+  </form>
+  
+  {% if note %}
+    <div class="alert" style="margin-top:12px;">{{ note }}</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>NFL Features (Coming Soon)</h2>
+  <ul>
+    <li>✅ QB + Pass Catcher stacking</li>
+    <li>✅ Game stack analysis</li>
+    <li>✅ Weather integration</li>
+    <li>✅ Vegas totals correlation</li>
+  </ul>
+</div>
+{% endblock %}
