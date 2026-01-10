@@ -1,5 +1,27 @@
-django
+# Core FastAPI
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Environment & Config
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Data Processing (you already have these, but good to list)
 pandas
 numpy
-python-dotenv
-requests
+duckdb
+
+# Future additions
+# stripe  # For payments (Phase 1, Month 2)
+# celery  # For background jobs (Phase 2)
+# redis   # For caching (Phase 2)

@@ -1,0 +1,58 @@
+"""
+User Model - The foundation of our 100K+ user base!
+"""
+
+from sqlalchemy import Column, String, Boolean, DateTime, Integer
+from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
+import uuid
+
+Base = declarative_base()
+
+class User(Base):
+    """User model - Each one represents $29-79/month! 💰"""
+    
+    __tablename__ = "users"
+    
+    # Primary key
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    
+    # Authentication
+    email = Column(String, unique=True, nullable=False, index=True)
+    password_hash = Column(String, nullable=False)
+    email_verified = Column(Boolean, default=False)
+    
+    # Profile
+    full_name = Column(String)
+    
+    # Subscription (Free/Pro/Elite/Enterprise)
+    tier = Column(String, default="free")  # free, pro, elite, enterprise
+    subscription_status = Column(String, default="active")  # active, cancelled, expired
+    subscription_expires_at = Column(DateTime, nullable=True)
+    
+    # Tracking
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_login_at = Column(DateTime, nullable=True)
+    
+    # Usage stats (for analytics)
+    lineups_generated = Column(Integer, default=0)
+    slates_processed = Column(Integer, default=0)
+    
+    def __repr__(self):
+        return f"<User {self.email} - {self.tier}>"
+    
+    def to_dict(self):
+        """Convert to dictionary for API responses"""
+        return {
+            "id": self.id,
+            "email": self.email,
+            "full_name": self.full_name,
+            "tier": self.tier,
+            "subscription_status": self.subscription_status,
+            "email_verified": self.email_verified,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
+            "lineups_generated": self.lineups_generated,
+            "slates_processed": self.slates_processed
+        }
