@@ -134,6 +134,65 @@ function parseCSVLine(line: string): string[] {
 }
 
 // ============================================================================
+// CSV Header Normalization
+// ============================================================================
+
+// Map of FanDuel/DraftKings column names to normalized names the backend expects
+const HEADER_NORMALIZATION_MAP: Record<string, string> = {
+  // Projection variants -> Proj
+  'fppg': 'Proj',
+  'fpts': 'Proj',
+  'avgpointspergame': 'Proj',
+  'points': 'Proj',
+  'projection': 'Proj',
+  // Name variants -> Name
+  'nickname': 'Name',
+  'playername': 'Name',
+  'player_name': 'Name',
+  'player': 'Name',
+  // Position variants -> Pos
+  'roster position': 'Pos',
+  'position': 'Pos',
+  // Team variants -> Team
+  'teamabbrev': 'Team',
+  'team_abbrev': 'Team',
+}
+
+/**
+ * Normalizes CSV headers to match backend expectations.
+ * FanDuel uses "FPPG" but backend expects "Proj".
+ */
+async function normalizeCSVHeaders(file: File): Promise<File> {
+  const content = await file.text()
+  const lines = content.split(/\r?\n/)
+
+  if (lines.length === 0) return file
+
+  const headerLine = lines[0]
+  const headers = parseCSVLine(headerLine)
+
+  let needsNormalization = false
+  const normalizedHeaders = headers.map((header) => {
+    const lowerHeader = header.toLowerCase().trim()
+    const normalized = HEADER_NORMALIZATION_MAP[lowerHeader]
+    if (normalized && normalized !== header) {
+      needsNormalization = true
+      return normalized
+    }
+    return header
+  })
+
+  // If no normalization needed, return original file
+  if (!needsNormalization) return file
+
+  // Rebuild CSV with normalized headers
+  lines[0] = normalizedHeaders.join(',')
+  const normalizedContent = lines.join('\n')
+
+  return new File([normalizedContent], file.name, { type: 'text/csv' })
+}
+
+// ============================================================================
 // Error Display Component
 // ============================================================================
 
@@ -295,7 +354,10 @@ export default function OptimizerPage() {
     }
 
     try {
-      const response = await runFDOptimizer(file, {
+      // Normalize CSV headers (e.g., FPPG -> Proj) before upload
+      const normalizedFile = await normalizeCSVHeaders(file)
+
+      const response = await runFDOptimizer(normalizedFile, {
         numLineups: params.numLineups,
         minSalary: params.minSalary,
         maxSalary: params.maxSalary,
