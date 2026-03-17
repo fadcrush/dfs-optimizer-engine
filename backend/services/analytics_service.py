@@ -1,0 +1,889 @@
+"""
+Analytics Service
+=================
+Bridges the analysis layer analytics with the backend API.
+
+Data is stored in ``data/dfs_master.duckdb``:
+
+  contest_results   — one row per contest entry (for ROI tracking)
+  projection_log    — one row per player-slate projection (accuracy tracking)
+
+Actuals come from ``data/dfs_edge.duckdb::player_game_logs``
+(written by scripts/ingest_game_logs.py).
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import Any, Optional
+
+import pandas as pd
+
+log = logging.getLogger(__name__)
+
+_ROOT = Path(__file__).resolve().parent.parent.parent
+_MASTER_DB = _ROOT / "data" / "dfs_master.duckdb"
+_EDGE_DB = _ROOT / "data" / "dfs_edge.duckdb"
+
+# Ensure the analysis package is importable from the backend service
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+try:
+    from analysis.shared.db import get_conn as _get_conn
+except ImportError:
+    import duckdb as _duckdb_mod
+    def _get_conn(path, *, db_key=None, read_only=False):  # type: ignore[misc]
+        return _duckdb_mod.connect(str(path), read_only=read_only)
+
+
+def _master(read_only: bool = False):
+    """Return the per-process singleton connection to dfs_master.duckdb."""
+    return _get_conn(_MASTER_DB, db_key="dfs_master", read_only=read_only)
+
+
+def _edge():
+    """Return the per-process read-only singleton for dfs_edge.duckdb."""
+    return _get_conn(_EDGE_DB, db_key="dfs_edge", read_only=True)
+
+
+# ---------------------------------------------------------------------------
+# Schema initialisation (called once at service startup)
+# ---------------------------------------------------------------------------
+
+def init_analytics_tables() -> None:
+    """Create analytics tables in dfs_master.duckdb if they don't exist."""
+    try:
+        con = _master()
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS contest_results (
+                id            INTEGER PRIMARY KEY,
+                contest_date  DATE    NOT NULL,
+                contest_type  VARCHAR NOT NULL,
+                site          VARCHAR NOT NULL,
+                entry_fee     DOUBLE  NOT NULL,
+                payout        DOUBLE  NOT NULL DEFAULT 0.0,
+                final_rank    INTEGER,
+                total_entries INTEGER,
+                lineup_proj   DOUBLE,
+                lineup_actual DOUBLE,
+                notes         VARCHAR DEFAULT '',
+                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS projection_log (
+                id            INTEGER PRIMARY KEY,
+                slate_date    DATE    NOT NULL,
+                site          VARCHAR NOT NULL,
+                player_id     VARCHAR NOT NULL,
+                player_name   VARCHAR NOT NULL,
+                salary        INTEGER,
+                proj          DOUBLE  NOT NULL,
+                floor         DOUBLE,
+                ceiling       DOUBLE,
+                ownership     DOUBLE,
+                actual_pts    DOUBLE,
+                reconciled    BOOLEAN DEFAULT FALSE,
+                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Ownership actuals table — populated by importing DK/FD contest result CSVs
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS ownership_actuals (
+                id             INTEGER PRIMARY KEY,
+                game_date      DATE    NOT NULL,
+                site           VARCHAR NOT NULL,
+                player_name    VARCHAR NOT NULL,
+                actual_own_pct DOUBLE  NOT NULL,
+                predicted_own  DOUBLE,
+                own_source     VARCHAR DEFAULT 'fallback',
+                salary         INTEGER,
+                proj           DOUBLE,
+                contest_type   VARCHAR DEFAULT 'gpp',
+                slate_id       VARCHAR DEFAULT '',
+                created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (game_date, site, player_name, slate_id)
+            )
+        """)
+        con.execute("CREATE SEQUENCE IF NOT EXISTS contest_results_id_seq START 1")
+        con.execute("CREATE SEQUENCE IF NOT EXISTS projection_log_id_seq START 1")
+        con.execute("CREATE SEQUENCE IF NOT EXISTS ownership_actuals_id_seq START 1")
+    except Exception as exc:
+        log.warning("analytics table init failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Contest tracking
+# ---------------------------------------------------------------------------
+
+def log_contest_result(
+    contest_date: date,
+    contest_type: str,
+    site: str,
+    entry_fee: float,
+    payout: float = 0.0,
+    final_rank: Optional[int] = None,
+    total_entries: Optional[int] = None,
+    lineup_proj: Optional[float] = None,
+    lineup_actual: Optional[float] = None,
+    notes: str = "",
+) -> bool:
+    """Write a single contest result row. Returns True on success."""
+    try:
+        con = _master()
+        con.execute("""
+            INSERT INTO contest_results
+                (id, contest_date, contest_type, site, entry_fee, payout,
+                 final_rank, total_entries, lineup_proj, lineup_actual, notes)
+            VALUES
+                (nextval('contest_results_id_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [
+            contest_date, contest_type.lower(), site.upper(),
+            float(entry_fee), float(payout),
+            final_rank, total_entries,
+            lineup_proj, lineup_actual, notes,
+        ])
+        return True
+    except Exception as exc:
+        log.error("log_contest_result failed: %s", exc)
+        return False
+
+
+def get_roi_summary(period_days: Optional[int] = None, site: Optional[str] = None) -> dict[str, Any]:
+    """
+    Calculate ROI metrics from stored contest results.
+
+    Returns a dict with keys:
+        total_invested, total_won, profit, roi_percentage,
+        total_contests, roi_by_type, period_days
+    """
+    try:
+        con = _master()
+
+        conditions = ["1=1"]
+        params: list[Any] = []
+
+        if period_days:
+            cutoff = (datetime.utcnow() - timedelta(days=period_days)).date()
+            conditions.append("contest_date >= ?")
+            params.append(cutoff)
+        if site:
+            conditions.append("site = ?")
+            params.append(site.upper())
+
+        where = " AND ".join(conditions)
+        df: pd.DataFrame = con.execute(
+            f"""
+            SELECT contest_date, contest_type, site,
+                   entry_fee, payout, final_rank, total_entries
+            FROM contest_results
+            WHERE {where}
+            ORDER BY contest_date DESC
+            """,
+            params,
+        ).df()
+
+    except Exception as exc:
+        log.warning("get_roi_summary DB read failed: %s", exc)
+        return {"error": str(exc), "total_contests": 0}
+
+    if df.empty:
+        return {
+            "total_invested": 0.0,
+            "total_won": 0.0,
+            "profit": 0.0,
+            "roi_percentage": 0.0,
+            "total_contests": 0,
+            "roi_by_type": {},
+            "period_days": period_days or "all_time",
+        }
+
+    total_invested = float(df["entry_fee"].sum())
+    total_won = float(df["payout"].sum())
+    profit = total_won - total_invested
+    roi_pct = (profit / total_invested * 100) if total_invested > 0 else 0.0
+
+    roi_by_type: dict[str, Any] = {}
+    for ct, grp in df.groupby("contest_type"):
+        invested = float(grp["entry_fee"].sum())
+        won = float(grp["payout"].sum())
+        roi_by_type[ct] = {
+            "invested": invested,
+            "won": won,
+            "profit": round(won - invested, 2),
+            "roi": round((won - invested) / invested * 100, 2) if invested > 0 else 0.0,
+            "count": len(grp),
+        }
+
+    return {
+        "total_invested": round(total_invested, 2),
+        "total_won": round(total_won, 2),
+        "profit": round(profit, 2),
+        "roi_percentage": round(roi_pct, 2),
+        "total_contests": len(df),
+        "roi_by_type": roi_by_type,
+        "period_days": period_days or "all_time",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Projection accuracy
+# ---------------------------------------------------------------------------
+
+def log_projections(projections: list[dict], slate_date: date, site: str) -> int:
+    """
+    Bulk-insert projection rows for later accuracy reconciliation.
+
+    Each dict should have: player_id, player_name, salary, proj,
+    floor (optional), ceiling (optional), ownership (optional).
+
+    Returns number of rows inserted.
+    """
+    if not projections:
+        return 0
+    try:
+        rows = [
+            (
+                slate_date, site.upper(),
+                str(p.get("player_id", "")),
+                str(p.get("player_name", p.get("name", ""))),
+                int(p.get("salary", 0)),
+                float(p.get("proj", p.get("Proj", 0.0))),
+                float(p.get("floor", p.get("Floor", 0.0))),
+                float(p.get("ceiling", p.get("Ceiling", 0.0))),
+                float(p.get("ownership", p.get("Own", 0.0))),
+            )
+            for p in projections
+        ]
+        con = _master()
+        con.executemany("""
+            INSERT INTO projection_log
+                (id, slate_date, site, player_id, player_name, salary,
+                 proj, floor, ceiling, ownership)
+            VALUES
+                (nextval('projection_log_id_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, rows)
+        return len(rows)
+    except Exception as exc:
+        log.error("log_projections failed: %s", exc)
+        return 0
+
+
+def reconcile_projections(slate_date: date, site: str) -> dict[str, Any]:
+    """
+    Match projection_log rows against player_game_logs actuals for a given date.
+    Updates the ``actual_pts`` and ``reconciled`` columns.
+
+    Returns a summary dict: {reconciled: N, mae: float, rmse: float}
+    """
+    try:
+        master = _master()
+        edge = _edge()
+
+        # Load actuals from game logs
+        actuals_df: pd.DataFrame = edge.execute("""
+            SELECT player_name,
+                   ROUND(AVG(dk_pts), 3) AS avg_dk,
+                   ROUND(AVG(fd_pts), 3) AS avg_fd
+            FROM player_game_logs
+            WHERE game_date = ?
+              AND minutes > 0
+            GROUP BY player_name
+        """, [slate_date]).df()
+
+        if actuals_df.empty:
+            return {"reconciled": 0, "note": "no actuals available yet"}
+
+        pts_col = "avg_dk" if site.upper() == "DK" else "avg_fd"
+
+        # Load projections for that date/site
+        proj_df: pd.DataFrame = master.execute("""
+            SELECT id, player_name, proj
+            FROM projection_log
+            WHERE slate_date = ? AND site = ? AND reconciled = FALSE
+        """, [slate_date, site.upper()]).df()
+
+        if proj_df.empty:
+            return {"reconciled": 0, "note": "no unreconciled projections found"}
+
+        merged = proj_df.merge(
+            actuals_df[["player_name", pts_col]],
+            on="player_name",
+            how="inner",
+        )
+
+        if merged.empty:
+            return {"reconciled": 0, "note": "no player name matches"}
+
+        for _, row in merged.iterrows():
+            master.execute("""
+                UPDATE projection_log
+                SET actual_pts = ?, reconciled = TRUE
+                WHERE id = ?
+            """, [float(row[pts_col]), int(row["id"])])
+
+        errors = (merged["proj"] - merged[pts_col]).abs()
+        sq_errors = (merged["proj"] - merged[pts_col]) ** 2
+        return {
+            "reconciled": len(merged),
+            "mae": round(float(errors.mean()), 3),
+            "rmse": round(float(sq_errors.mean() ** 0.5), 3),
+            "bias": round(float((merged["proj"] - merged[pts_col]).mean()), 3),
+        }
+
+    except Exception as exc:
+        log.error("reconcile_projections failed: %s", exc)
+        return {"error": str(exc), "reconciled": 0}
+
+
+def get_accuracy_report(
+    period_days: Optional[int] = 30,
+    site: str = "DK",
+) -> dict[str, Any]:
+    """
+    Pull reconciled projection accuracy stats for the given window.
+
+    Returns: {total_projections, mae, rmse, bias, by_day: [...]}
+    """
+    try:
+        con = _master()
+
+        conditions = ["reconciled = TRUE", "site = ?"]
+        params: list[Any] = [site.upper()]
+
+        if period_days:
+            cutoff = (datetime.utcnow() - timedelta(days=period_days)).date()
+            conditions.append("slate_date >= ?")
+            params.append(cutoff)
+
+        where = " AND ".join(conditions)
+        df: pd.DataFrame = con.execute(
+            f"""
+            SELECT slate_date, proj, actual_pts,
+                   ABS(proj - actual_pts) AS abs_error,
+                   (proj - actual_pts)    AS error
+            FROM projection_log
+            WHERE {where}
+            ORDER BY slate_date DESC
+            """,
+            params,
+        ).df()
+
+    except Exception as exc:
+        log.warning("get_accuracy_report failed: %s", exc)
+        return {"error": str(exc)}
+
+    if df.empty:
+        return {
+            "total_projections": 0,
+            "mae": None,
+            "rmse": None,
+            "bias": None,
+            "period_days": period_days or "all_time",
+            "by_day": [],
+        }
+
+    by_day = (
+        df.groupby("slate_date")
+        .agg(
+            count=("proj", "count"),
+            mae=("abs_error", "mean"),
+            rmse=("error", lambda x: float((x**2).mean() ** 0.5)),
+            bias=("error", "mean"),
+        )
+        .reset_index()
+        .rename(columns={"slate_date": "date"})
+        .to_dict(orient="records")
+    )
+
+    return {
+        "total_projections": len(df),
+        "mae": round(float(df["abs_error"].mean()), 3),
+        "rmse": round(float((df["error"] ** 2).mean() ** 0.5), 3),
+        "bias": round(float(df["error"].mean()), 3),
+        "period_days": period_days or "all_time",
+        "site": site.upper(),
+        "by_day": [
+            {
+                "date": str(r["date"]),
+                "count": int(r["count"]),
+                "mae": round(float(r["mae"]), 3),
+                "rmse": round(float(r["rmse"]), 3),
+                "bias": round(float(r["bias"]), 3),
+            }
+            for r in by_day
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Ownership accuracy
+# ---------------------------------------------------------------------------
+
+def synthesize_ownership_from_slate(
+    csv_content: str,
+    site: str,
+    game_date: date,
+    contest_type: str = "gpp",
+    slate_id: str = "",
+) -> dict[str, Any]:
+    """
+    Accept a DraftKings/FanDuel salary (player pool) CSV and derive synthetic
+    ownership estimates from AvgPointsPerGame via a temperature-scaled softmax.
+
+    This is a seeding mechanism — synthetic rows are written to
+    ownership_history.duckdb with own_source='synthetic' so the model can
+    learn salary/projection → ownership relationships even before you have
+    real contest export data.
+
+    Ownership is distributed realistically:
+      - GPP  : heavy tails, top player up to ~58%, many at 1-4%
+      - Cash : flatter, most players 8–35%
+    """
+    import io
+    import numpy as np
+
+    try:
+        df = pd.read_csv(io.StringIO(csv_content))
+    except Exception as exc:
+        return {"error": f"Could not parse CSV: {exc}", "seeded": 0}
+
+    cols_lower = {c.strip().lower(): c for c in df.columns}
+
+    # Must be a DK/FD salary file
+    fppg_col = next(
+        (cols_lower[k] for k in ("avgpointspergame", "avg points per game", "fppg", "avgfppg") if k in cols_lower),
+        None,
+    )
+    name_col = next(
+        (cols_lower[k] for k in ("name", "nickname", "player") if k in cols_lower),
+        None,
+    )
+    salary_col = next(
+        (cols_lower[k] for k in ("salary",) if k in cols_lower),
+        None,
+    )
+    pos_col = next(
+        (cols_lower[k] for k in ("position", "roster position") if k in cols_lower),
+        None,
+    )
+
+    if not fppg_col or not name_col:
+        return {
+            "error": (
+                f"Expected a DraftKings/FanDuel salary CSV with 'Name' and 'AvgPointsPerGame' columns. "
+                f"Found: {list(df.columns)}"
+            ),
+            "seeded": 0,
+        }
+
+    work = df[[name_col, fppg_col] + ([salary_col] if salary_col else []) + ([pos_col] if pos_col else [])].copy()
+    work.columns = (
+        ["name", "fppg"]
+        + (["salary"] if salary_col else [])
+        + (["position"] if pos_col else [])
+    )
+    work["fppg"] = pd.to_numeric(work["fppg"], errors="coerce")
+    work = work.dropna(subset=["fppg"])
+    work = work[work["fppg"] > 0].reset_index(drop=True)
+
+    if work.empty:
+        return {"error": "No valid FPPG values found.", "seeded": 0}
+
+    # Temperature-scaled softmax → realistic ownership distribution.
+    # Temperature is set relative to the FPPG spread of the slate so the
+    # distribution stays realistic regardless of slate size or value tier.
+    # Lower temp = more concentrated at top (GPP); higher = flatter (cash).
+    fppg_arr = work["fppg"].to_numpy(dtype=float)
+    fppg_std = float(np.std(fppg_arr)) or 1.0
+    # Aim for the top player to be ~2-3x the median ownership, not 50x.
+    # A temperature of ~2× std achieves that across typical DFS slates.
+    temperature = fppg_std * 2.5 if contest_type in ("gpp", "winner_take_all") else fppg_std * 4.0
+    fppg_arr = work["fppg"].to_numpy(dtype=float)
+    logits = fppg_arr / temperature
+    logits -= logits.max()  # numerical stability
+    exp_logits = np.exp(logits)
+    probs = exp_logits / exp_logits.sum()
+
+    # Scale from probability to realistic ownership %
+    # GPP: 0.5 – 58%   Cash: 3 – 38%
+    own_min = 0.5 if contest_type in ("gpp", "winner_take_all") else 3.0
+    own_max = 58.0 if contest_type in ("gpp", "winner_take_all") else 38.0
+    n = len(probs)
+    # Linear rescale: p_min → own_min, p_max → own_max
+    p_min, p_max = probs.min(), probs.max()
+    if p_max > p_min:
+        own_arr = own_min + (probs - p_min) / (p_max - p_min) * (own_max - own_min)
+    else:
+        own_arr = np.full(n, (own_min + own_max) / 2)
+
+    work["synthetic_own"] = own_arr.round(1)
+
+    # Write to ownership_history.duckdb
+    seeded = 0
+    try:
+        from analysis.nba.ownership_v2 import _ensure_ownership_db, OWNERSHIP_DB
+        import duckdb
+        _ensure_ownership_db()
+        own_con = duckdb.connect(str(OWNERSHIP_DB))
+        rows = [
+            (
+                str(r["name"]),
+                str(game_date),
+                site.upper(),
+                slate_id or str(game_date),
+                float(r["synthetic_own"]),
+                float(r["fppg"]),
+                int(r["salary"]) if "salary" in r and pd.notna(r["salary"]) else None,
+                None,  # team_total
+                None,  # is_home
+                contest_type.lower(),
+                "synthetic",  # own_source flag
+            )
+            for _, r in work.iterrows()
+        ]
+        # Add own_source to schema if not present (migration)
+        try:
+            own_con.execute("ALTER TABLE ownership_history ADD COLUMN IF NOT EXISTS own_source VARCHAR")
+        except Exception:
+            pass
+        own_con.executemany(
+            """INSERT OR REPLACE INTO ownership_history
+               (player_name, game_date, site, slate_id, actual_own_pct,
+                proj_at_lock, salary, team_total, is_home, contest_type, own_source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+        own_con.close()
+        seeded = len(rows)
+        log.info("Seeded %d synthetic ownership rows from slate", seeded)
+    except Exception as exc:
+        log.error("synthesize_ownership_from_slate write failed: %s", exc)
+        return {"error": f"Write failed: {exc}", "seeded": 0}
+
+    return {
+        "seeded": seeded,
+        "note": (
+            f"Synthetic ownership estimates written from FPPG ({contest_type}). "
+            "These seed the model but real contest actuals are more accurate. "
+            "Import real contest exports whenever possible."
+        ),
+        "top_players": [
+            {"name": r["name"], "fppg": round(r["fppg"], 1), "est_own": round(r["synthetic_own"], 1)}
+            for _, r in work.nlargest(5, "fppg").iterrows()
+        ],
+    }
+
+
+def import_ownership_actuals(
+    csv_content: str,
+    site: str,
+    game_date: date,
+    contest_type: str = "gpp",
+    slate_id: str = "",
+) -> dict[str, Any]:
+    """
+    Parse a DK/FD contest results CSV and write actual ownership percentages
+    to ownership_actuals + ownership_history.duckdb.
+
+    DraftKings contest CSVs contain a "%Owned" column.
+    FanDuel contest CSVs contain a "%" or "Ownership %" column.
+
+    Returns: {imported: N, skipped: N, source: site}
+    """
+    import io
+    try:
+        df = pd.read_csv(io.StringIO(csv_content))
+    except Exception as exc:
+        return {"error": f"Could not parse CSV: {exc}", "imported": 0}
+
+    cols_lower = {c.strip(): c for c in df.columns}
+
+    # Detect player name column — ranked by preference
+    _name_candidates = (
+        "name", "player", "nickname", "player name", "player_name",
+        # DK contest standings CSV uses this composite — strip the ID part later
+        "name + id",
+    )
+    name_col = next(
+        (cols_lower[k] for k in _name_candidates if k in cols_lower),
+        None,
+    )
+
+    # Detect ownership column
+    _own_candidates = (
+        "%owned", "% owned", "owned %", "ownership %", "ownership", "own%",
+        "pct_owned", "pct owned", "own_pct",
+    )
+    own_col = next(
+        (cols_lower[k] for k in _own_candidates if k in cols_lower),
+        # fallback: any column whose name contains "%" or "own"
+        next(
+            (c for c in df.columns
+             if ("%" in c and "points" not in c.lower() and "salary" not in c.lower())
+             or ("own" in c.lower() and "shown" not in c.lower())),
+            None,
+        ),
+    )
+
+    # -----------------------------------------------------------------------
+    # Detect wrong file type early and give a clear, actionable error
+    # -----------------------------------------------------------------------
+    _is_slate_file = any(
+        c.strip().lower() in ("roster position", "avgpointspergame", "avg points per game")
+        for c in df.columns
+    )
+    if _is_slate_file:
+        return {
+            "error": (
+                "This looks like a DraftKings slate/salaries file, not a contest results export. "
+                "To get the correct file: go to your DraftKings contest → click 'Export' (after it locks) "
+                "→ 'Export Results' → download the CSV.  That file will contain a '%Owned' column. "
+                "Alternatively you can create a simple CSV with two columns: 'Name' and '%Owned'."
+            ),
+            "imported": 0,
+        }
+
+    if not name_col or not own_col:
+        return {
+            "error": (
+                f"Could not locate name/ownership columns in the uploaded file. "
+                f"Columns found: {list(df.columns)}. "
+                f"Expected a '%Owned' (or similar) column and a 'Name' column. "
+                f"This endpoint accepts: DK contest results exports, FD contest results exports, "
+                f"or a simple two-column CSV with headers 'Name' and '%Owned'."
+            ),
+            "imported": 0,
+        }
+
+    # DK "Name + ID" format: "LeBron James (42099018)" → "LeBron James"
+    if name_col.strip().lower() == "name + id":
+        df[name_col] = df[name_col].astype(str).str.replace(r"\s*\(\d+\)\s*$", "", regex=True).str.strip()
+
+    df = df[[name_col, own_col]].copy()
+    df.columns = ["player_name", "actual_own_pct"]
+    df["player_name"] = df["player_name"].astype(str).str.strip()
+    df["actual_own_pct"] = (
+        df["actual_own_pct"].astype(str)
+        .str.replace("%", "", regex=False)
+        .pipe(pd.to_numeric, errors="coerce")
+    )
+    df = df.dropna(subset=["actual_own_pct"])
+    df = df[df["player_name"].str.len() > 0]
+
+    if df.empty:
+        return {"imported": 0, "skipped": 0, "note": "no valid rows after parsing"}
+
+    # Merge with projection_log for that date to get prediction + salary
+    try:
+        con = _master()
+        proj_df = con.execute(
+            "SELECT player_name, proj, ownership AS predicted_own FROM projection_log "
+            "WHERE slate_date = ? AND site = ?",
+            [game_date, site.upper()],
+        ).df()
+    except Exception:
+        proj_df = pd.DataFrame(columns=["player_name", "proj", "predicted_own"])
+
+    merged = df.merge(proj_df, on="player_name", how="left")
+
+    # Write to ownership_actuals in dfs_master
+    imported = 0
+    try:
+        for _, row in merged.iterrows():
+            try:
+                con.execute(
+                    """
+                    INSERT OR REPLACE INTO ownership_actuals
+                        (id, game_date, site, player_name, actual_own_pct,
+                         predicted_own, proj, contest_type, slate_id)
+                    VALUES
+                        (nextval('ownership_actuals_id_seq'), ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        game_date, site.upper(),
+                        str(row["player_name"]),
+                        float(row["actual_own_pct"]),
+                        float(row["predicted_own"]) if pd.notna(row.get("predicted_own")) else None,
+                        float(row["proj"]) if pd.notna(row.get("proj")) else None,
+                        contest_type.lower(),
+                        slate_id,
+                    ],
+                )
+                imported += 1
+            except Exception:
+                pass
+    except Exception as exc:
+        log.error("import_ownership_actuals insert failed: %s", exc)
+
+    # Also write to ownership_history.duckdb for model training
+    try:
+        from analysis.nba.ownership_v2 import _ensure_ownership_db, OWNERSHIP_DB
+        import duckdb
+        _ensure_ownership_db()
+        own_con = duckdb.connect(str(OWNERSHIP_DB))
+        rows = [
+            (
+                str(r["player_name"]),
+                str(game_date),
+                site.upper(),
+                slate_id,
+                float(r["actual_own_pct"]),
+                float(r["proj"]) if pd.notna(r.get("proj")) else None,
+                None,  # salary (can add later)
+                None,  # team_total
+                None,  # is_home
+                contest_type.lower(),
+            )
+            for _, r in merged.iterrows()
+        ]
+        own_con.executemany(
+            """INSERT OR REPLACE INTO ownership_history
+               (player_name, game_date, site, slate_id, actual_own_pct,
+                proj_at_lock, salary, team_total, is_home, contest_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+        own_con.close()
+        log.info("Wrote %d ownership actuals to training DB", len(rows))
+    except Exception as exc:
+        log.warning("Could not write to ownership_history: %s", exc)
+
+    return {"imported": imported, "skipped": len(df) - imported, "source": site.upper()}
+
+
+def get_ownership_accuracy_report(
+    period_days: Optional[int] = 30,
+    site: str = "DK",
+) -> dict[str, Any]:
+    """
+    Return ownership prediction accuracy metrics (MAE, bias, chalk accuracy).
+
+    chalk_accuracy = % of players with actual_own_pct >= 30%
+                     where |predicted - actual| <= 8 percentage points.
+    """
+    try:
+        con = _master()
+        conditions = ["site = ?"]
+        params: list[Any] = [site.upper()]
+
+        if period_days:
+            cutoff = (datetime.utcnow() - timedelta(days=period_days)).date()
+            conditions.append("game_date >= ?")
+            params.append(cutoff)
+
+        conditions.append("predicted_own IS NOT NULL")
+        where = " AND ".join(conditions)
+
+        df: pd.DataFrame = con.execute(
+            f"""
+            SELECT game_date, player_name, actual_own_pct, predicted_own, own_source
+            FROM ownership_actuals
+            WHERE {where}
+            ORDER BY game_date DESC
+            """,
+            params,
+        ).df()
+    except Exception as exc:
+        log.warning("get_ownership_accuracy_report failed: %s", exc)
+        return {"error": str(exc)}
+
+    if df.empty:
+        return {
+            "total_players": 0,
+            "mae": None,
+            "bias": None,
+            "chalk_accuracy": None,
+            "model_pct": None,
+            "period_days": period_days or "all_time",
+            "site": site.upper(),
+            "note": "No ownership actuals yet. Import a contest results CSV via POST /analytics/import-ownership-actuals.",
+        }
+
+    abs_err = (df["predicted_own"] - df["actual_own_pct"]).abs()
+    bias = float((df["predicted_own"] - df["actual_own_pct"]).mean())
+
+    chalk = df[df["actual_own_pct"] >= 30.0]
+    chalk_acc = (
+        float((chalk["predicted_own"] - chalk["actual_own_pct"]).abs().le(8.0).mean() * 100)
+        if len(chalk) > 0 else None
+    )
+
+    model_pct = float((df["own_source"] == "model").mean() * 100) if "own_source" in df.columns else None
+
+    by_day_raw = (
+        df.assign(abs_err=abs_err, error=df["predicted_own"] - df["actual_own_pct"])
+        .groupby("game_date")
+        .agg(count=("player_name", "count"), mae=("abs_err", "mean"), bias=("error", "mean"))
+        .reset_index()
+        .rename(columns={"game_date": "date"})
+    )
+
+    return {
+        "total_players": len(df),
+        "mae": round(float(abs_err.mean()), 3),
+        "bias": round(bias, 3),
+        "chalk_accuracy": round(chalk_acc, 1) if chalk_acc is not None else None,
+        "model_pct": round(model_pct, 1) if model_pct is not None else None,
+        "period_days": period_days or "all_time",
+        "site": site.upper(),
+        "by_day": [
+            {
+                "date": str(r["date"]),
+                "count": int(r["count"]),
+                "mae": round(float(r["mae"]), 3),
+                "bias": round(float(r["bias"]), 3),
+            }
+            for _, r in by_day_raw.iterrows()
+        ],
+    }
+
+
+def get_ownership_model_status() -> dict[str, Any]:
+    """Return training data size and model file age for each site."""
+    from pathlib import Path as _Path
+    import datetime as _dt
+
+    root = _Path(__file__).resolve().parent.parent.parent
+    models_dir = root / "data" / "models"
+    own_db = root / "data" / "ownership_history.duckdb"
+
+    training_rows: dict[str, int] = {}
+    try:
+        import duckdb
+        con = duckdb.connect(str(own_db), read_only=True)
+        for site in ("DK", "FD"):
+            try:
+                count = con.execute(
+                    "SELECT COUNT(*) FROM ownership_history WHERE site = ?", [site]
+                ).fetchone()[0]
+                training_rows[site] = int(count)
+            except Exception:
+                training_rows[site] = 0
+        con.close()
+    except Exception:
+        training_rows = {"DK": 0, "FD": 0}
+
+    model_ages: dict[str, Any] = {}
+    for site in ("DK", "FD"):
+        model_path = models_dir / f"ownership_NBA_{site}.pkl"
+        if model_path.exists():
+            mtime = _dt.datetime.fromtimestamp(model_path.stat().st_mtime)
+            model_ages[site] = {
+                "exists": True,
+                "trained_at": mtime.isoformat(),
+                "age_days": (_dt.datetime.utcnow() - mtime).days,
+            }
+        else:
+            model_ages[site] = {"exists": False}
+
+    return {
+        "training_rows": training_rows,
+        "models": model_ages,
+        "min_rows_required": 300,
+        "ready": {site: training_rows.get(site, 0) >= 300 for site in ("DK", "FD")},
+    }

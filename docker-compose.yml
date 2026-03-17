@@ -1,0 +1,66 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DFS Edge Pro — Docker Compose
+#
+# Quick start:
+#   docker compose up --build
+#
+# Backend:  http://localhost:8000
+# API docs: http://localhost:8000/docs
+# Frontend: http://localhost:3000
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── FastAPI backend ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .                                   # project root
+      dockerfile: infra/docker/Dockerfile.backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env                                       # your local .env
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - DFS_DISABLE_AUTH=1
+    volumes:
+      # Persist DuckDB files across rebuilds
+      - ./data:/app/data
+      # Persist uploaded slates (file_service saves to backend/uploads/)
+      - ./backend/uploads:/app/backend/uploads
+      # Persist output CSVs
+      - ./outputs:/app/outputs
+      # Live source code — changes reflected without rebuilding the image
+      - ./analysis:/app/analysis
+      - ./backend:/app/backend
+      - ./workers:/app/workers
+      - ./scripts:/app/scripts
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── Next.js frontend ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.frontend
+      args:
+        # Read public keys from .env at BUILD TIME
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_DISABLE_AUTH: 1
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_DISABLE_AUTH=1
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

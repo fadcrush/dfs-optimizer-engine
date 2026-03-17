@@ -15,7 +15,7 @@ def run_nba_pipeline(
     projections_df: pd.DataFrame,
     site: str = "AUTO",
     n_lineups: int = 150,
-    min_unique: int = 2,
+    num_unique: int = 2,
     max_exposure: float = 0.60,
     leverage_weight: float = 0.25,
     locks: Optional[List[str]] = None,
@@ -29,7 +29,7 @@ def run_nba_pipeline(
         projections_df: DataFrame with player projections
         site: DFS site ('FD', 'DK', or 'AUTO')
         n_lineups: Number of lineups to generate
-        min_unique: Minimum unique players per lineup
+        num_unique: Number of unique players required across each lineup
         max_exposure: Maximum exposure per player (0.0-1.0)
         leverage_weight: Weight for contrarian/leverage plays
         locks: List of player IDs that must be in all lineups

@@ -9,7 +9,7 @@ from datetime import datetime
 
 from database.db import get_db
 from models.user import User
-from services.auth import hash_password, verify_password, create_access_token, verify_token
+from services.auth import hash_password, verify_password, create_access_token, verify_token, get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -115,28 +115,8 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     }
 
 @router.get("/me")
-async def get_current_user(token: str, db: Session = Depends(get_db)):
-    """
-    Get current user info from token
-    """
-    
-    try:
-        # Verify token
-        user_id = verify_token(token)
-        
-        # Get user
-        user = db.query(User).filter(User.id == user_id).first()
-        
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        return user.to_dict()
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials"
-        )
+async def me(current_user=Depends(get_current_user)):
+    """Return the authenticated user's profile."""
+    if hasattr(current_user, "to_dict"):
+        return current_user.to_dict()
+    return current_user

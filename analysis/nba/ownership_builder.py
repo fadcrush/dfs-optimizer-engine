@@ -7,13 +7,13 @@ from datetime import datetime
 # ----------------------------
 # CONFIG
 # ----------------------------
-ROOT_DIR = Path("E:/N_B_A")
+# Derive project root from this file's location (3 levels up: nba/ → analysis/ → project root)
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 
-HISTORICAL_LINEUPS_DIR = ROOT_DIR / "FD_NBA_Past_Games"
-PLAYER_MAP_FILE = ROOT_DIR / "data/nba/raw/balldontlie_players.csv"
-OUTPUT_DIR = ROOT_DIR / "data/nba/processed"
-
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+# Where to look for past lineup CSV exports (configurable via env or call-site override)
+HISTORICAL_LINEUPS_DIR = ROOT_DIR / "data" / "uploads"
+PLAYER_MAP_FILE = ROOT_DIR / "data" / "nba" / "raw" / "balldontlie_players.csv"
+OUTPUT_DIR = ROOT_DIR / "outputs" / "ownership"
 
 # DraftKings / FanDuel roster column detection
 ROSTER_COL_KEYWORDS = ["PG", "SG", "SF", "PF", "C", "UTIL", "FLEX"]
@@ -102,10 +102,11 @@ def build_ownership(df, player_map):
 # SAVE RESULTS
 # ----------------------------
 def save_output(df):
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     out_file = OUTPUT_DIR / f"nba_ownership_{timestamp}.csv"
     df.to_csv(out_file, index=False)
-    print(f"✅ Ownership file saved: {out_file}")
+    print(f"Ownership file saved: {out_file}")
 
 
 # ----------------------------

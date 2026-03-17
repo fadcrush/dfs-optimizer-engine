@@ -1,6 +1,4 @@
-"""
-Database connection - The foundation that will handle 100K+ users!
-"""
+"""Database connection module."""
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
@@ -8,43 +6,55 @@ from sqlalchemy.pool import NullPool
 import os
 from dotenv import load_dotenv
 from contextlib import contextmanager
+import logging
+
+log = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
-# Get database URL
+# Get database URL — may be absent in local dev without Postgres
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL not found in environment variables!")
+# Lazily initialised so the app can start even without DATABASE_URL.
+# Routes that call get_db() will raise HTTP 503 instead of crashing uvicorn.
+engine = None
+SessionLocal = None
 
-# Create engine
-engine = create_engine(
-    DATABASE_URL,
-    poolclass=NullPool,  # Supabase handles connection pooling
-    echo=False  # Set to True to see SQL queries (useful for debugging)
-)
+if DATABASE_URL:
+    engine = create_engine(
+        DATABASE_URL,
+        poolclass=NullPool,
+        echo=False,
+    )
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+else:
+    log.warning(
+        "DATABASE_URL not set — database-backed routes will be unavailable. "
+        "Set DATABASE_URL in .env to enable authentication and slate storage."
+    )
 
-# Create session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db() -> Session:
-    """
-    Dependency for FastAPI routes
-    Usage: db: Session = Depends(get_db)
-    """
+    """FastAPI dependency — yields a DB session or raises HTTP 503."""
+    if SessionLocal is None:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=503,
+            detail="Database not configured. Set DATABASE_URL in .env.",
+        )
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
 
+
 @contextmanager
 def get_db_context():
-    """
-    Context manager for manual database operations
-    Usage: with get_db_context() as db:
-    """
+    """Context manager for manual database operations."""
+    if SessionLocal is None:
+        raise RuntimeError("DATABASE_URL not configured")
     db = SessionLocal()
     try:
         yield db
@@ -55,39 +65,36 @@ def get_db_context():
     finally:
         db.close()
 
+
 def init_db():
-    """
-    Initialize database - create all tables
-    Call this on application startup
-    """
+    """Initialize database — create all tables."""
+    if engine is None:
+        print("[db] Skipping init_db — DATABASE_URL not set.")
+        return False
     from models.user import Base
-    
-    print("🔧 Initializing database...")
-    
+    print("[db] Initialising database...")
     try:
-        # Create all tables
         Base.metadata.create_all(bind=engine)
-        print("✅ Database tables created successfully!")
-        
-        # Test connection
         with engine.connect() as conn:
-            result = conn.execute(text("SELECT 1"))
-            print("✅ Database connection verified!")
-            
+            conn.execute(text("SELECT 1"))
+        print("[db] Database tables ready.")
         return True
-        
     except Exception as e:
-        print(f"❌ Database initialization failed: {e}")
+        print(f"[db] Database init failed: {e}")
         return False
 
+
 def test_connection():
-    """Test if database connection works"""
+    """Test if database connection works."""
+    if engine is None:
+        print("[db] No DATABASE_URL — skipping connection test.")
+        return False
     try:
         with engine.connect() as conn:
             result = conn.execute(text("SELECT version()"))
             version = result.fetchone()[0]
-            print(f"✅ Connected to PostgreSQL: {version}")
+            print(f"[db] Connected to PostgreSQL: {version}")
             return True
     except Exception as e:
-        print(f"❌ Connection failed: {e}")
+        print(f"[db] Connection failed: {e}")
         return False

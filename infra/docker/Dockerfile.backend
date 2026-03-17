@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Backend — FastAPI + Python 3.11  (multi-stage)
+# Context root: project root (one level above backend/)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Stage 1 — build / compile wheels
+FROM python:3.11-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libpq-dev \
+    libffi-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2 — lean runtime image
+# ─────────────────────────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+# Only the runtime C libs (libpq for psycopg2) + gosu for privilege drop in entrypoint
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    gosu \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Copy compiled wheels from builder
+COPY --from=builder /install /usr/local
+
+WORKDIR /app
+
+# Copy project source
+COPY analysis/      ./analysis/
+COPY backend/       ./backend/
+COPY workers/       ./workers/
+COPY scripts/       ./scripts/
+COPY news_engine/   ./news_engine/
+COPY optimizer/     ./optimizer/
+
+# Runtime directories (overridden by volume mounts in production)
+RUN mkdir -p \
+    ./data/uploads \
+    ./data/cache \
+    ./data/models \
+    ./outputs/projections \
+    ./outputs/lineups \
+    ./logs/backend \
+    ./logs/workers
+
+# Non-root user for security
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+RUN chown -R appuser:appgroup /app
+# Do NOT switch to appuser here — the entrypoint script runs as root to fix
+# volume-mount permissions, then uses gosu to drop to appuser before exec.
+
+ENV PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Copy and enable the entrypoint script (runs as root, drops to appuser)
+COPY infra/docker/entrypoint.backend.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+WORKDIR /app/backend
+
+EXPOSE 8000
+
+ENTRYPOINT ["/entrypoint.sh"]
+# Default to 1 worker — DuckDB does not support multiple writer processes
+# on the same file.  FastAPI is async; 1 worker handles thousands of concurrent
+# requests.  Override with UVICORN_WORKERS env var if you switch to Postgres.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", \
+    "--workers", "1", "--timeout-keep-alive", "75"]

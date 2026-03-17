@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-inter: 'Inter', system-ui, sans-serif;
+    --font-geist-mono: 'Geist Mono', monospace;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-surface-base text-text-primary font-sans;
+    margin: 0;
+  }
+
+  /* Global focus-visible ring */
+  *:focus-visible {
+    outline: 2px solid theme('colors.primary.DEFAULT');
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Skeleton shimmer */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      theme('colors.surface.raised') 25%,
+      theme('colors.surface.overlay') 50%,
+      theme('colors.surface.raised') 75%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer rounded;
+  }
+
+  /* Scrollbar styling for dark theme */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.surface.border') transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-surface-border;
+  }
+}

@@ -19,7 +19,7 @@ load_dotenv('config/.env')
 
 from analysis.shared.api_clients import (
     TheOddsAPIClient,
-    SportsDataAPIClient,
+    NBAFreeDataClient,
     BallDontLieAPIClient,
     WeatherAPIClient
 )
@@ -46,21 +46,17 @@ try:
 except Exception as e:
     print(f"  ✗ FAILED: {e}")
 
-# Test 2: SportsData API
-print("\n2️⃣  Testing SportsData API (Player Stats)...")
+# Test 2: NBA Free Data (nba_api / stats.nba.com — no key needed)
+print("\n2️⃣  Testing NBA Free Data Client (stats.nba.com via nba_api)...")
 try:
-    sportsdata_key = os.getenv('SPORTSDATA_API_KEY')
-    if not sportsdata_key or sportsdata_key == 'your_sportsdata_key_here':
-        print("  ⚠️  No API key found - skipping")
+    client = NBAFreeDataClient()
+    stats = client.get_player_stats_season('2026')
+    if stats:
+        print(f"  ✓ SUCCESS! Found {len(stats)} player stats (no API key required)")
+        print(f"    Example: {stats[0].get('Player', 'N/A')} - {stats[0].get('Team', 'N/A')} "
+              f"| {stats[0].get('PTS', 'N/A')} PPG")
     else:
-        client = SportsDataAPIClient(sportsdata_key)
-        stats = client.get_player_stats_season('2025')
-        if stats:
-            print(f"  ✓ SUCCESS! Found {len(stats)} player stats")
-            if stats:
-                print(f"    Example: {stats[0].get('Name', 'N/A')} - {stats[0].get('Team', 'N/A')}")
-        else:
-            print("  ⚠️  No stats found")
+        print("  ⚠️  No stats returned (nba_api may not be installed)")
 except Exception as e:
     print(f"  ✗ FAILED: {e}")
 

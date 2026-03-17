@@ -33,23 +33,87 @@ def add_basic_features(proj_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ---- placeholders for future intelligence layers ----
-def add_defense_features(df: pd.DataFrame) -> pd.DataFrame:
+def add_defense_features(
+    df: pd.DataFrame,
+    site: str = "DK",
+    lookback_days: int = 30,
+) -> pd.DataFrame:
+    """Apply Defense-vs-Player (DvP) multipliers from game-log data.
+
+    Looks up each player's opponent (``Opp`` column) in the DvP table built
+    from ``dfs_edge.duckdb`` and multiplies ``Proj`` accordingly.  Adds a
+    ``DvP`` column showing the applied multiplier.  If no DB is available or
+    no ``Opp`` column exists the dataframe is returned unchanged.
+
+    Args:
+        df:            Projections DataFrame with at least ``Proj`` and ``Opp``.
+        site:          ``"DK"`` or ``"FD"`` — which fantasy scoring to use.
+        lookback_days: Calendar days of game-log history to include.
     """
-    Later we will inject:
-    - Opponent defensive rating
-    - DvP style position matchup
-    - team pace
-    - implied total from odds
-    """
+    from analysis.nba.dvp import load_dvp_table
+
+    if "Proj" not in df.columns:
+        return df
+
+    opp_col = next((c for c in ["Opp", "opp", "Opponent"] if c in df.columns), None)
+    if opp_col is None:
+        return df
+
+    dvp_table = load_dvp_table(site=site, lookback_days=lookback_days)
+    if not dvp_table:
+        df["DvP"] = 1.0
+        return df
+
+    multipliers = df[opp_col].map(lambda t: dvp_table.get(str(t).strip(), 1.0))
+    df = df.copy()
+    df["DvP"] = multipliers.round(4)
+    df["Proj"] = (df["Proj"] * multipliers).round(4)
     return df
 
 
-def add_odds_features(df: pd.DataFrame) -> pd.DataFrame:
+def add_odds_features(
+    df: pd.DataFrame,
+    game_totals: dict[str, float] | None = None,
+    max_adj: float = 0.05,
+) -> pd.DataFrame:
+    """Apply Vegas game-total pace adjustments to projections.
+
+    Uses the ``Team`` column to look up each player's game total, then applies
+    a small multiplier: high totals (loose implied scoring) nudge projections
+    up, low totals nudge them down.  The adjustment is capped at ±``max_adj``
+    (default ±5 %) to avoid over-fitting a single number.
+
+    Args:
+        df:           Projections DataFrame with ``Proj`` and ``Team`` columns.
+        game_totals:  Dict mapping team abbreviation → game O/U total
+                      e.g. ``{"BOS": 224.5, "MIA": 224.5, ...}``.
+                      If ``None`` or empty the dataframe is returned unchanged.
+        max_adj:      Maximum fractional adjustment (0.05 → ±5 %).
     """
-    Later we will inject:
-    - spread
-    - game total
-    - implied team totals
-    """
+    if "Proj" not in df.columns or not game_totals:
+        return df
+
+    team_col = next((c for c in ["Team", "team"] if c in df.columns), None)
+    if team_col is None:
+        return df
+
+    all_totals = list(game_totals.values())
+    if not all_totals:
+        return df
+
+    import statistics
+    median_total = statistics.median(all_totals)
+
+    def _pace_mult(team: str) -> float:
+        total = game_totals.get(str(team).strip())
+        if total is None or median_total == 0:
+            return 1.0
+        raw = total / median_total
+        return max(1.0 - max_adj, min(1.0 + max_adj, raw))
+
+    df = df.copy()
+    mults = df[team_col].map(_pace_mult)
+    df["GameTotal"] = df[team_col].map(lambda t: game_totals.get(str(t).strip(), None))
+    df["PaceMult"] = mults.round(4)
+    df["Proj"] = (df["Proj"] * mults).round(4)
     return df
