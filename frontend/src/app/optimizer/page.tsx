@@ -1,14 +1,33 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   runFDOptimizer,
+  runFullPipeline,
   downloadLineups,
   downloadFile,
   type FDOptimizerResponse,
+  type FullPipelineResponse,
+  type PipelineSteps,
   type FDLineup,
 } from '@/lib/api'
-import { formatSalary, formatProjection } from '@/lib/utils'
+import { formatSalary, formatProjection, cn } from '@/lib/utils'
+import { useLatestSlate } from '@/hooks/useLatestSlate'
+import { SlateSelector } from '@/components/shared/SlateSelector'
+import { ContestModeSelector, CONTEST_MODE_PRESETS, type ContestMode, type ContestModeConfig } from '@/components/shared/ContestModeSelector'
+import { LockFadeControl } from '@/components/shared/LockFadeControl'
+import { CopyLineupButton } from '@/components/shared/CopyLineupButton'
+import { InjuryAlertBanner } from '@/components/shared/InjuryAlertBanner'
+import { getInjurySummary } from '@/lib/api/slates'
+import type { InjurySummary } from '@/lib/api/slates'
+import {
+  PlayerPoolPanel,
+  parseCSVToPool,
+  getPoolExcludedNames,
+  getPoolProjectionOverrides,
+  validatePool,
+  type PlayerPoolMap,
+} from '@/components/optimizer/PlayerPoolPanel'
 
 // ============================================================================
 // Configuration
@@ -26,10 +45,19 @@ const REQUIRED_COLUMNS = [
   { name: 'Projection', aliases: ['projection', 'proj', 'fppg', 'fpts', 'points', 'avgpointspergame'] },
 ]
 
-// FanDuel slot order for display
-const FD_SLOTS = ['PG', 'PG_2', 'SG', 'SG_2', 'SF', 'SF_2', 'PF', 'PF_2', 'C'] as const
+// FanDuel / DraftKings slot configs
+const FD_SLOT_KEYS = ['PG', 'PG_2', 'SG', 'SG_2', 'SF', 'SF_2', 'PF', 'PF_2', 'C'] as const
+const DK_SLOT_KEYS = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'UTIL'] as const
 
-type SlotKey = (typeof FD_SLOTS)[number]
+type SlotKey = (typeof FD_SLOT_KEYS)[number] | (typeof DK_SLOT_KEYS)[number]
+
+const SITE_SLOT_CONFIG: Record<'FD' | 'DK', ReadonlyArray<string>> = {
+  FD: FD_SLOT_KEYS,
+  DK: DK_SLOT_KEYS,
+}
+
+const SALARY_CAPS = { FD: 60000, DK: 50000 } as const
+const SALARY_DEFAULTS = { FD: 59000, DK: 47000 } as const
 
 // ============================================================================
 // CSV Validation
@@ -99,6 +127,15 @@ async function validateCSV(file: File): Promise<ValidationResult> {
   }
 }
 
+/** @deprecated kept for simulation page compat */
+function cleanName(raw: string | number | undefined): string {
+  if (raw == null) return '-'
+  const s = String(raw)
+  // Strip any legacy "ID:Name" prefix just in case
+  const m = s.match(/^\d+:(.+)$/)
+  return m ? m[1] : s
+}
+
 function readFirstLine(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -138,13 +175,10 @@ function parseCSVLine(line: string): string[] {
 // ============================================================================
 
 // Map of FanDuel/DraftKings column names to normalized names the backend expects
+// IMPORTANT: fppg / avgpointspergame / points are intentionally excluded — the
+// backend's canonical projection engine uses our own L10 game-log averages
+// (stored in dfs_edge.duckdb) and must NEVER fall back to DK/FD stock numbers.
 const HEADER_NORMALIZATION_MAP: Record<string, string> = {
-  // Projection variants -> Proj
-  'fppg': 'Proj',
-  'fpts': 'Proj',
-  'avgpointspergame': 'Proj',
-  'points': 'Proj',
-  'projection': 'Proj',
   // Name variants -> Name
   'nickname': 'Name',
   'playername': 'Name',
@@ -156,6 +190,10 @@ const HEADER_NORMALIZATION_MAP: Record<string, string> = {
   // Team variants -> Team
   'teamabbrev': 'Team',
   'team_abbrev': 'Team',
+  // Only rename columns that represent OUR projections (user-supplied), never DK/FD stock averages
+  'projection': 'Proj',
+  'my proj': 'Proj',
+  'ss proj': 'Proj',
 }
 
 /**
@@ -205,39 +243,24 @@ function ErrorDisplay({ message, rawError }: ErrorDisplayProps) {
   const [showRaw, setShowRaw] = useState(false)
 
   return (
-    <div className="bg-red-900/50 border border-red-500 rounded-lg p-4 mb-6">
-      <div className="flex items-start gap-3">
-        <svg
-          className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-        <div className="flex-1">
-          <p className="text-red-300 font-medium">{message}</p>
-          {rawError && rawError !== message && (
-            <div className="mt-2">
-              <button
-                onClick={() => setShowRaw(!showRaw)}
-                className="text-sm text-red-400 hover:text-red-300 underline"
-              >
-                {showRaw ? 'Hide' : 'Show'} technical details
-              </button>
-              {showRaw && (
-                <pre className="mt-2 p-2 bg-black/30 rounded text-xs text-red-200 overflow-x-auto">
-                  {rawError}
-                </pre>
-              )}
-            </div>
-          )}
-        </div>
+    <div className="bg-[#7f1d1d33] border border-[#ef4444] rounded-lg px-4 py-3 mb-5 flex gap-3 items-start">
+      <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="#f87171" className="shrink-0 mt-0.5">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <div className="flex-1">
+        <p className="m-0 text-[#fca5a5] font-semibold">{message}</p>
+        {rawError && rawError !== message && (
+          <div className="mt-2">
+            <button onClick={() => setShowRaw(!showRaw)}
+              className="bg-transparent border-none text-[#f87171] cursor-pointer text-xs underline p-0">
+              {showRaw ? 'Hide' : 'Show'} technical details
+            </button>
+            {showRaw && (
+              <pre className="mt-1.5 p-2 bg-black/30 rounded-[6px] text-[11px] text-[#fca5a5] overflow-x-auto">{rawError}</pre>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -252,30 +275,24 @@ interface RunParams {
   minSalary: number
   maxSalary: number
   maxExposure: number
+  numUnique: number
   platform: string
   contestType: string
+  site: 'FD' | 'DK'
 }
 
 function RunParametersDisplay({ params }: { params: RunParams }) {
+  const chipCls = 'px-2.5 py-[3px] bg-surface-border border border-[#334155] rounded-[6px] text-xs text-text-muted'
   return (
-    <div className="bg-gray-700/50 rounded p-3 mb-4">
-      <p className="text-sm text-gray-400 mb-2">Run Parameters</p>
-      <div className="flex flex-wrap gap-3 text-sm">
-        <span className="px-2 py-1 bg-gray-600 rounded">
-          Platform: <strong>{params.platform}</strong>
-        </span>
-        <span className="px-2 py-1 bg-gray-600 rounded">
-          Lineups: <strong>{params.numLineups}</strong>
-        </span>
-        <span className="px-2 py-1 bg-gray-600 rounded">
-          Salary: <strong>{formatSalary(params.minSalary)}</strong> - <strong>{formatSalary(params.maxSalary)}</strong>
-        </span>
-        <span className="px-2 py-1 bg-gray-600 rounded">
-          Max Exposure: <strong>{(params.maxExposure * 100).toFixed(0)}%</strong>
-        </span>
-        <span className="px-2 py-1 bg-gray-600 rounded">
-          Contest: <strong>{params.contestType}</strong>
-        </span>
+    <div className="bg-[#0f172a] rounded-lg px-3.5 py-2.5 mb-3.5">
+      <p className="m-0 mb-2 text-[11px] text-[#64748b] uppercase font-bold">Run Parameters</p>
+      <div className="flex flex-wrap gap-2">
+        <span className={chipCls}>Platform: <strong className="text-[#f1f5f9]">{params.platform}</strong></span>
+        <span className={chipCls}>Lineups: <strong className="text-[#f1f5f9]">{params.numLineups}</strong></span>
+        <span className={chipCls}>Salary: <strong className="text-[#f1f5f9]">{formatSalary(params.minSalary)}</strong> – <strong className="text-[#f1f5f9]">{formatSalary(params.maxSalary)}</strong></span>
+        <span className={chipCls}>Max Exposure: <strong className="text-[#f1f5f9]">{(params.maxExposure * 100).toFixed(0)}%</strong></span>
+        <span className={chipCls}>Num Unique: <strong className="text-[#f1f5f9]">{params.numUnique}</strong></span>
+        <span className={chipCls}>Contest: <strong className="text-[#f1f5f9]">{params.contestType}</strong></span>
       </div>
     </div>
   )
@@ -287,12 +304,16 @@ function RunParametersDisplay({ params }: { params: RunParams }) {
 
 export default function OptimizerPage() {
   // Form state
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
+  const [site, setSite] = useState<'FD' | 'DK'>('FD')
   const [numLineups, setNumLineups] = useState(20)
   const [minSalary, setMinSalary] = useState(59000)
 
   // UI state
   const [loading, setLoading] = useState(false)
+  const [pipelineLoading, setPipelineLoading] = useState(false)
+  const [pipelineSteps, setPipelineSteps] = useState<PipelineSteps | null>(null)
   const [validating, setValidating] = useState(false)
   const [error, setError] = useState<{ message: string; raw?: string } | null>(null)
   const [validationStatus, setValidationStatus] = useState<string | null>(null)
@@ -300,6 +321,125 @@ export default function OptimizerPage() {
   // Results state
   const [result, setResult] = useState<FDOptimizerResponse | null>(null)
   const [runParams, setRunParams] = useState<RunParams | null>(null)
+
+  // Contest mode + stacking
+  const [contestMode, setContestMode] = useState<ContestMode>('gpp')
+  const [enableStacking, setEnableStacking] = useState(true)
+  const [minGameStack, setMinGameStack] = useState(2)
+  const [bringBackCount, setBringBackCount] = useState(1)
+
+  // Chalk auto-fade: players projected > this % owned are excluded from the pool
+  const [chalkThreshold, setChalkThreshold] = useState(0)
+
+  // Exposure & uniqueness controls
+  const [maxExposure, setMaxExposure] = useState(50)   // percent (e.g. 50 = 50%)
+  const [numUnique, setNumUnique] = useState(2)          // unique players across each lineup
+
+  // Lock / fade
+  const [locks, setLocks] = useState<string[]>([])
+  const [fades, setFades] = useState<string[]>([])
+
+  // ── Player Pool ───────────────────────────────────────────────────────────
+  const [playerPool, setPlayerPool] = useState<PlayerPoolMap>(new Map())
+
+  // ── Injury awareness ────────────────────────────────────────────────────
+  const [injurySummary, setInjurySummary] = useState<InjurySummary | null>(null)
+  const [injuryAutoExcluded, setInjuryAutoExcluded] = useState(0)
+
+  // Fetch injury data and auto-exclude OUT players when pool changes
+  const applyInjuryExclusions = useCallback(async (pool: PlayerPoolMap) => {
+    if (pool.size === 0) return pool
+    try {
+      const data = await getInjurySummary()
+      const outNames = new Set(
+        data.players
+          .filter(p => ['OUT', 'O'].includes(p.status.toUpperCase()))
+          .map(p => p.player_name.toLowerCase())
+      )
+      if (outNames.size === 0) {
+        setInjurySummary({
+          out_count: data.out_count, questionable_count: data.questionable_count,
+          doubtful_count: data.doubtful_count, probable_count: 0,
+          out_players: [], questionable_players: [], doubtful_players: [],
+          all_injuries: [], changed_since_export: 0, last_updated: data.timestamp,
+        })
+        return pool
+      }
+
+      // Auto-exclude OUT players from the pool
+      const next = new Map(pool)
+      let excluded = 0
+      next.forEach((entry, id) => {
+        if (outNames.has(entry.name.toLowerCase()) && entry.poolStatus === 'included') {
+          next.set(id, { ...entry, poolStatus: 'excluded' as const })
+          excluded++
+        }
+      })
+
+      setInjuryAutoExcluded(excluded)
+      setInjurySummary({
+        out_count: data.out_count,
+        questionable_count: data.questionable_count,
+        doubtful_count: data.doubtful_count,
+        probable_count: 0,
+        out_players: data.players.filter(p => ['OUT', 'O'].includes(p.status.toUpperCase())).map(p => ({
+          name: p.player_name, team: p.team, detail: p.detail, status: p.status,
+        })),
+        questionable_players: data.players.filter(p => ['QUESTIONABLE', 'Q', 'GTD'].includes(p.status.toUpperCase())).map(p => ({
+          name: p.player_name, team: p.team, detail: p.detail, status: p.status,
+        })),
+        doubtful_players: data.players.filter(p => ['DOUBTFUL', 'D'].includes(p.status.toUpperCase())).map(p => ({
+          name: p.player_name, team: p.team, detail: p.detail, status: p.status,
+        })),
+        all_injuries: [],
+        changed_since_export: 0,
+        last_updated: data.timestamp,
+      })
+
+      return next
+    } catch {
+      // Injury data unavailable — proceed without exclusions
+      return pool
+    }
+  }, [])
+
+  // Slate auto-load
+  const { slates, selectedSlate, setSelectedId, slateFile, loading: slateLoading } = useLatestSlate()
+  useEffect(() => {
+    if (slateFile) {
+      setFile(slateFile)
+      setValidationStatus(`Auto-loaded from saved slate (${slateFile.name})`)
+      setError(null)
+      // Parse auto-loaded slate into player pool, then auto-exclude OUT players
+      parseCSVToPool(slateFile).then(async map => {
+        const enriched = await applyInjuryExclusions(map)
+        setPlayerPool(enriched)
+      }).catch(() => {})
+    }
+  }, [slateFile, applyInjuryExclusions])
+
+  // Faded teams + excluded players — read from dashboard localStorage
+  const [fadedTeams, setFadedTeams]       = useState<string[]>([])
+  const [excludedPlayers, setExcludedPlayers] = useState<string[]>([])
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('dfs_excluded_teams')
+      if (saved) setFadedTeams(JSON.parse(saved) as string[])
+    } catch { /* ignore */ }
+    try {
+      const saved = localStorage.getItem('dfs_excluded_players')
+      if (saved) setExcludedPlayers(JSON.parse(saved) as string[])
+    } catch { /* ignore */ }
+  }, [])
+
+  // Reset salary floor + pool when platform switches
+  useEffect(() => {
+    setMinSalary(SALARY_DEFAULTS[site])
+    setResult(null)
+    setError(null)
+    setPlayerPool(new Map())
+  }, [site])
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0]
@@ -328,6 +468,11 @@ export default function OptimizerPage() {
 
       setFile(selected)
       setValidationStatus(`Valid CSV with ${validation.foundColumns?.length || 0} required columns`)
+      setPlayerPool(new Map()) // reset before parsing — edge: avoids stale state if parse is slow
+      parseCSVToPool(selected).then(async map => {
+        const enriched = await applyInjuryExclusions(map)
+        setPlayerPool(enriched)
+      }).catch(() => {})
     } finally {
       setValidating(false)
     }
@@ -339,6 +484,15 @@ export default function OptimizerPage() {
       return
     }
 
+    // ── Player pool validation ─────────────────────────────────────────────
+    if (playerPool.size > 0) {
+      const poolCheck = validatePool(playerPool, site)
+      if (!poolCheck.ok) {
+        setError({ message: poolCheck.errors[0] ?? 'Player pool validation failed.' })
+        return
+      }
+    }
+
     setLoading(true)
     setError(null)
     setResult(null)
@@ -347,11 +501,19 @@ export default function OptimizerPage() {
     const params: RunParams = {
       numLineups,
       minSalary,
-      maxSalary: 60000,
-      maxExposure: 0.35,
-      platform: 'FanDuel',
+      maxSalary: SALARY_CAPS[site],
+      maxExposure: maxExposure / 100,
+      numUnique,
+      platform: site === 'FD' ? 'FanDuel' : 'DraftKings',
       contestType: 'small_gpp',
+      site,
     }
+
+    // ── Derive pool payload ────────────────────────────────────────────────
+    // Merge dashboard excludes with player-pool excludes (union, deduplicated)
+    const poolExcludes    = playerPool.size > 0 ? getPoolExcludedNames(playerPool) : []
+    const projOverrides   = playerPool.size > 0 ? getPoolProjectionOverrides(playerPool) : {}
+    const mergedExcludes  = Array.from(new Set([...excludedPlayers, ...poolExcludes]))
 
     try {
       // Normalize CSV headers (e.g., FPPG -> Proj) before upload
@@ -362,6 +524,13 @@ export default function OptimizerPage() {
         minSalary: params.minSalary,
         maxSalary: params.maxSalary,
         maxExposure: params.maxExposure,
+        numUnique,
+        site: params.site,
+        outTeams: fadedTeams.length > 0 ? fadedTeams : undefined,
+        outPlayers: mergedExcludes.length > 0 ? mergedExcludes : undefined,
+        chalkThreshold: chalkThreshold > 0 ? chalkThreshold : undefined,
+        projectionOverrides: Object.keys(projOverrides).length > 0 ? projOverrides : undefined,
+        lockedPlayers: locks.length > 0 ? locks : undefined,
       })
 
       if (!response.success) {
@@ -383,6 +552,85 @@ export default function OptimizerPage() {
       })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleRunFullPipeline = async () => {
+    if (!file) {
+      setError({ message: 'Please select a valid CSV file first' })
+      return
+    }
+
+    setPipelineLoading(true)
+    setPipelineSteps(null)
+    setError(null)
+    setResult(null)
+
+    // Player pool validation
+    if (playerPool.size > 0) {
+      const poolCheck = validatePool(playerPool, site)
+      if (!poolCheck.ok) {
+        setError({ message: poolCheck.errors[0] ?? 'Player pool validation failed.' })
+        setPipelineLoading(false)
+        return
+      }
+    }
+
+    try {
+      // Pass raw slate CSV — the pipeline will NOT use DK/FD stock projections
+      // ── Derive pool payload for full pipeline ──────────────────────────────
+      const _poolExcludes   = playerPool.size > 0 ? getPoolExcludedNames(playerPool) : []
+      const _projOverrides  = playerPool.size > 0 ? getPoolProjectionOverrides(playerPool) : {}
+      const _mergedExcludes = Array.from(new Set([...excludedPlayers, ..._poolExcludes]))
+
+      const response = await runFullPipeline(file, {
+        site,
+        numLineups,
+        maxExposure: maxExposure / 100,
+        numUnique,
+        contestType: contestMode,
+        outTeams: fadedTeams.length > 0 ? fadedTeams : undefined,
+        outPlayers: _mergedExcludes.length > 0 ? _mergedExcludes : undefined,
+        enableStacking,
+        minGameStack,
+        bringBackCount,
+        refreshProps: true,
+        chalkThreshold: chalkThreshold > 0 ? chalkThreshold : undefined,
+        projectionOverrides: Object.keys(_projOverrides).length > 0 ? _projOverrides : undefined,
+        lockedPlayers: locks.length > 0 ? locks : undefined,
+      })
+
+      if (!response.success) {
+        setError({
+          message: 'Full pipeline failed. Check your CSV format and try again.',
+          raw: response.error,
+        })
+        return
+      }
+
+      if (response.data) {
+        if (response.data.pipeline_steps) {
+          setPipelineSteps(response.data.pipeline_steps)
+        }
+        setResult(response.data)
+        setRunParams({
+          numLineups,
+          minSalary,
+          maxSalary: SALARY_CAPS[site],
+          maxExposure: maxExposure / 100,
+          numUnique,
+          platform: site === 'FD' ? 'FanDuel' : 'DraftKings',
+          contestType: contestMode,
+          site,
+        })
+      }
+    } catch (err) {
+      setError({
+        message: 'An unexpected error occurred.',
+        raw: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setPipelineLoading(false)
     }
   }
 
@@ -410,213 +658,458 @@ export default function OptimizerPage() {
     }
   }
 
+  const lblCls = 'block text-[11px] text-text-muted uppercase mb-1 font-semibold'
+  const inpCls = 'w-full bg-surface-overlay text-text-primary border border-surface-border rounded-md px-2.5 py-1.5 text-sm outline-none focus:border-primary'
+  const thCls  = 'px-2.5 py-2 text-left border-b-2 border-surface-border text-text-muted text-[11px] font-bold uppercase whitespace-nowrap select-none'
+  const tdCls  = 'px-2.5 py-1.5 text-text-secondary border-b border-surface-border/50 text-sm'
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-8">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">FanDuel NBA Optimizer</h1>
+    <div className="min-h-[calc(100vh-48px)] bg-surface-base">
+      <div className="max-w-[1100px] mx-auto px-6 py-6">
 
-        {/* Input Section */}
-        <div className="bg-gray-800 rounded-lg p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Upload Projections</h2>
+        {/* Header */}
+        <div className="mb-5">
+          <h1 className="m-0 text-2xl font-extrabold text-text-primary">
+            {site === 'FD' ? 'FanDuel' : 'DraftKings'} NBA Optimizer
+          </h1>
+          <p className="mt-1 mb-0 text-sm text-text-muted">
+            Upload a projections CSV and generate optimized lineups.
+          </p>
+        </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            {/* File Input */}
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">
-                CSV File <span className="text-gray-500">(max {MAX_FILE_SIZE_MB}MB)</span>
-              </label>
-              <input
-                type="file"
-                accept=".csv"
-                onChange={handleFileChange}
-                disabled={validating}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:cursor-pointer disabled:opacity-50"
+        {/* Faded teams banner */}
+        {fadedTeams.length > 0 && (
+          <div className="mb-4 px-4 py-2.5 bg-danger-muted border border-danger/40 rounded-lg flex items-center justify-between flex-wrap gap-2 text-xs text-danger">
+            <span>
+              <strong>{fadedTeams.length}</strong> team{fadedTeams.length !== 1 ? 's' : ''} faded from dashboard:{' '}
+              <strong>{fadedTeams.join(', ')}</strong> — these players will be excluded from lineups.
+            </span>
+            <button
+              onClick={() => { localStorage.setItem('dfs_excluded_teams', '[]'); setFadedTeams([]) }}
+              className="px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer bg-danger text-white border-0 hover:opacity-80 transition-opacity"
+            >
+              Clear fades
+            </button>
+          </div>
+        )}
+
+        {/* Excluded players banner */}
+        {excludedPlayers.length > 0 && (
+          <div className="mb-4 px-4 py-2.5 bg-warning-muted border border-warning/40 rounded-lg flex items-center justify-between flex-wrap gap-2 text-xs text-warning">
+            <span>
+              <strong>{excludedPlayers.length}</strong> player{excludedPlayers.length !== 1 ? 's' : ''} skipped from dashboard:{' '}
+              <strong>{excludedPlayers.slice(0, 5).join(', ')}{excludedPlayers.length > 5 ? `, +${excludedPlayers.length - 5} more` : ''}</strong>
+            </span>
+            <button
+              onClick={() => { localStorage.setItem('dfs_excluded_players', '[]'); setExcludedPlayers([]) }}
+              className="px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer bg-warning text-surface-base border-0 hover:opacity-80 transition-opacity"
+            >
+              Clear skips
+            </button>
+          </div>
+        )}
+
+        {/* Slate selector */}
+        <SlateSelector
+          slates={slates}
+          selected={selectedSlate}
+          loading={slateLoading}
+          onSelect={setSelectedId}
+          onFileOverride={f => { setFile(f); setValidationStatus(`Using override file: ${f.name}`); setError(null) }}
+        />
+
+        {/* Input card */}
+        <div className="bg-surface-raised border border-surface-border rounded-xl mb-5 overflow-hidden">
+          <div className="px-5 py-3 border-b border-surface-border text-sm font-bold text-text-primary">Upload Projections</div>
+          <div className="px-5 py-4">
+
+            {/* Contest Mode Selector */}
+            <div className="mb-4">
+              <ContestModeSelector
+                value={contestMode}
+                onChange={(mode: ContestMode, cfg: ContestModeConfig) => {
+                  setContestMode(mode)
+                  if (mode !== 'custom') {
+                    setNumLineups(cfg.defaults.n_lineups)
+                    setEnableStacking(cfg.defaults.enable_stacking)
+                    setMinGameStack(cfg.defaults.min_game_stack)
+                    setBringBackCount(cfg.defaults.bring_back_count)
+                  }
+                }}
               />
-              {validating && (
-                <p className="text-sm text-yellow-400 mt-1">Validating CSV...</p>
-              )}
-              {file && validationStatus && (
-                <p className="text-sm text-green-400 mt-1">
-                  {file.name} - {validationStatus}
+            </div>
+
+            {/* Site Selector */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xs text-text-muted">Platform:</span>
+              {(['FD', 'DK'] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSite(s)}
+                  className={cn(
+                    'px-3.5 py-1.5 rounded text-sm font-bold cursor-pointer border-0 transition-colors',
+                    site === s ? 'bg-primary text-white' : 'bg-surface-overlay text-text-secondary hover:text-text-primary',
+                  )}
+                >
+                  {s === 'FD' ? 'FanDuel' : 'DraftKings'}
+                </button>
+              ))}
+              <span className="text-[11px] text-text-muted ml-1">
+                Cap: ${site === 'FD' ? '60,000' : '50,000'} &bull; {SITE_SLOT_CONFIG[site].length} players
+              </span>
+            </div>
+
+            {/* File / Lineups / Salary row */}
+            <div className="grid grid-cols-3 gap-3.5 mb-3.5">
+              <div>
+                <label className={lblCls}>CSV File <span className="text-text-muted">(max {MAX_FILE_SIZE_MB}MB)</span></label>
+                {/* Hidden real input — triggered by the styled zone below */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleFileChange}
+                  disabled={validating}
+                />
+                {/* Styled click/drag target */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Upload CSV file"
+                  onClick={() => !validating && fileInputRef.current?.click()}
+                  onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && !validating && fileInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
+                  onDrop={e => {
+                    e.preventDefault()
+                    const dropped = e.dataTransfer.files?.[0]
+                    if (dropped) handleFileChange({ target: { files: e.dataTransfer.files } } as React.ChangeEvent<HTMLInputElement>)
+                  }}
+                  className={cn(
+                    'flex items-center gap-2 border-2 border-dashed rounded-lg px-3 py-2.5 text-sm cursor-pointer transition-colors select-none',
+                    validating
+                      ? 'border-warning/50 text-warning cursor-not-allowed'
+                      : file
+                        ? 'border-success/60 text-success bg-success-muted/30 hover:border-success'
+                        : 'border-surface-border text-text-muted hover:border-primary hover:text-text-primary',
+                  )}
+                >
+                  <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <span className="truncate">
+                    {validating ? 'Validating…' : file ? file.name : 'Click or drag CSV here'}
+                  </span>
+                </div>
+                {file && validationStatus && !validating && (
+                  <p className="text-[11px] text-success mt-1">{validationStatus}</p>
+                )}
+              </div>
+              <div>
+                <label className={lblCls}>Number of Lineups</label>
+                <input type="number" min={1} max={150} value={numLineups}
+                  onChange={e => setNumLineups(Number(e.target.value))} className={inpCls} />
+              </div>
+              <div>
+                <label className={lblCls}>Minimum Salary</label>
+                <input type="number" min={0} max={SALARY_CAPS[site]} step={1000} value={minSalary}
+                  onChange={e => setMinSalary(Number(e.target.value))} className={inpCls} />
+              </div>
+            </div>
+
+            {/* Stacking settings (shown only when enabled) */}
+            {enableStacking && (
+              <div className="grid grid-cols-3 gap-3.5 mb-3.5 px-3.5 py-3 bg-surface-base rounded-lg border border-primary-muted">
+                <div>
+                  <label className={lblCls}>Min Players / Game</label>
+                  <input type="number" min={0} max={6} value={minGameStack}
+                    onChange={e => setMinGameStack(Number(e.target.value))} className={inpCls} />
+                </div>
+                <div>
+                  <label className={lblCls}>Bring-Back Count</label>
+                  <input type="number" min={0} max={4} value={bringBackCount}
+                    onChange={e => setBringBackCount(Number(e.target.value))} className={inpCls} />
+                </div>
+                <div className="flex items-center gap-2 mt-[18px]">
+                  <input type="checkbox" checked={enableStacking} onChange={e => setEnableStacking(e.target.checked)}
+                    id="stacking-toggle" className="accent-primary cursor-pointer" />
+                  <label htmlFor="stacking-toggle" className="text-sm text-text-secondary cursor-pointer">
+                    Enable Stacking
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Chalk auto-fade */}
+            <div className={cn(
+              'mb-3.5 px-3.5 py-3 bg-surface-base rounded-lg border transition-colors',
+              chalkThreshold > 0 ? 'border-purple-600/50' : 'border-surface-border',
+            )}>
+              <label className={lblCls}>
+                Auto-Fade Chalk&nbsp;
+                <span className={cn('font-bold', chalkThreshold > 0 ? 'text-purple-400' : 'text-text-muted')}>
+                  {chalkThreshold > 0 ? `> ${chalkThreshold}% projected owned` : 'Off'}
+                </span>
+              </label>
+              <div className="flex items-center gap-2.5 mt-1.5">
+                <input
+                  type="range" min={0} max={60} step={5}
+                  value={chalkThreshold}
+                  onChange={e => setChalkThreshold(Number(e.target.value))}
+                  className="flex-1 accent-purple-500"
+                />
+                <span className="text-xs text-text-secondary min-w-[30px] text-right">
+                  {chalkThreshold === 0 ? 'Off' : `${chalkThreshold}%`}
+                </span>
+              </div>
+              {chalkThreshold > 0 && (
+                <p className="text-[11px] text-purple-400 mt-1">
+                  Players projected at {chalkThreshold}%+ ownership will be excluded from the pool.
                 </p>
               )}
             </div>
 
-            {/* Num Lineups */}
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">
-                Number of Lineups
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={150}
-                value={numLineups}
-                onChange={(e) => setNumLineups(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+            {/* Lineup Diversity Controls */}
+            <div className="mb-3.5 px-3.5 py-3 bg-surface-base rounded-lg border border-primary-muted">
+              <p className="text-[11px] text-text-muted uppercase font-bold tracking-wide mt-0 mb-2.5">Lineup Diversity</p>
+
+              {/* Max Exposure */}
+              <div className="mb-3">
+                <label className={cn(lblCls, 'flex justify-between')}>
+                  <span>Max Exposure</span>
+                  <span className="text-primary font-bold">{maxExposure}%</span>
+                </label>
+                <input
+                  type="range" min={10} max={80} step={5}
+                  value={maxExposure}
+                  onChange={e => setMaxExposure(Number(e.target.value))}
+                  className="w-full accent-primary mt-1.5"
+                />
+                <p className="text-[11px] text-text-muted mt-1 mb-0">
+                  Max % of lineups any single player can appear in. Lower = more variety. (GPP: 25–40%)
+                </p>
+              </div>
+
+              {/* Num Unique */}
+              <div>
+                <label className={cn(lblCls, 'flex justify-between')}>
+                  <span>Unique Players Across Lineups</span>
+                  <span className="text-success font-bold">{numUnique}</span>
+                </label>
+                <input
+                  type="range" min={1} max={6} step={1}
+                  value={numUnique}
+                  onChange={e => setNumUnique(Number(e.target.value))}
+                  className="w-full accent-emerald-500 mt-1.5"
+                />
+                <p className="text-[11px] text-text-muted mt-1 mb-0">
+                  How many players must differ between each consecutive lineup. Higher = more variety. (GPP: 3–4)
+                </p>
+              </div>
+            </div>
+
+            {/* Lock / Fade control */}
+            <div className="mb-3.5">
+              <LockFadeControl
+                players={[]}
+                locks={locks}
+                fades={fades}
+                onLocksChange={setLocks}
+                onFadesChange={setFades}
               />
             </div>
 
-            {/* Min Salary */}
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">
-                Minimum Salary
-              </label>
-              <input
-                type="number"
-                min={0}
-                max={60000}
-                step={1000}
-                value={minSalary}
-                onChange={(e) => setMinSalary(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
-              />
+            <details className="mb-3.5">
+              <summary className="text-xs text-text-muted cursor-pointer">Required CSV columns</summary>
+              <div className="mt-2 p-3 bg-surface-base rounded-lg">
+                <p className="text-xs text-text-secondary mt-0 mb-1.5">Your CSV must include these columns (or common aliases):</p>
+                <ul className="m-0 pl-4">
+                  {REQUIRED_COLUMNS.map(col => (
+                    <li key={col.name} className="text-xs text-text-muted mb-0.5">
+                      <strong className="text-text-secondary">{col.name}</strong>{' '}({col.aliases.join(', ')})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </details>
+
+            {/* Run buttons */}
+            <div className="flex gap-2.5 items-center flex-wrap">
+              <button
+                onClick={handleRunOptimizer}
+                disabled={loading || pipelineLoading || !file || validating}
+                className="px-5 py-2 rounded text-[15px] font-bold bg-primary text-white border-0 cursor-pointer disabled:opacity-50 hover:bg-primary-hover transition-colors"
+              >
+                {loading
+                  ? 'Optimizing…'
+                  : playerPool.size > 0
+                    ? (() => {
+                        const included = Array.from(playerPool.values()).filter(e => e.poolStatus === 'included').length
+                        const excluded = playerPool.size - included
+                        return excluded > 0
+                          ? `Run Optimizer (${included} in pool, ${excluded} OUT)`
+                          : `Run Optimizer (${included} in pool)`
+                      })()
+                    : 'Run Optimizer'
+                }
+              </button>
+              <button
+                onClick={handleRunFullPipeline}
+                disabled={loading || pipelineLoading || !file || validating}
+                className="px-5 py-2 rounded text-[15px] font-bold bg-success text-white border-0 cursor-pointer disabled:opacity-60 hover:brightness-110 transition-all"
+              >
+                {pipelineLoading ? '⏳ Running Pipeline…' : '⚡ Run Full Pipeline'}
+              </button>
+              <span className="text-[11px] text-text-muted">
+                ↑ injuries · props · projections · ownership · optimize · download in one click
+              </span>
             </div>
           </div>
-
-          {/* Required Columns Help */}
-          <details className="mb-4 text-sm">
-            <summary className="text-gray-400 cursor-pointer hover:text-gray-300">
-              Required CSV columns
-            </summary>
-            <div className="mt-2 p-3 bg-gray-700/50 rounded">
-              <p className="text-gray-300 mb-2">Your CSV must include these columns (or common aliases):</p>
-              <ul className="list-disc list-inside text-gray-400 space-y-1">
-                {REQUIRED_COLUMNS.map((col) => (
-                  <li key={col.name}>
-                    <strong className="text-gray-300">{col.name}</strong>
-                    <span className="text-gray-500"> ({col.aliases.join(', ')})</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </details>
-
-          {/* Run Button */}
-          <button
-            onClick={handleRunOptimizer}
-            disabled={loading || !file || validating}
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-semibold transition-colors"
-          >
-            {loading ? (
-              <span className="flex items-center gap-2">
-                <svg
-                  className="animate-spin h-5 w-5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                Optimizing...
-              </span>
-            ) : (
-              'Run Optimizer'
-            )}
-          </button>
         </div>
 
-        {/* Error Display */}
+        {/* Injury Alert Banner */}
+        {injurySummary && (injurySummary.out_count > 0 || injurySummary.questionable_count > 0) && (
+          <div className="mb-4">
+            {injuryAutoExcluded > 0 && (
+              <div className="bg-red-600/10 border border-red-600/20 rounded-lg px-4 py-2 mb-2 text-xs text-red-400 font-semibold">
+                {injuryAutoExcluded} OUT player{injuryAutoExcluded !== 1 ? 's' : ''} auto-excluded from pool
+              </div>
+            )}
+            <InjuryAlertBanner summary={injurySummary} />
+          </div>
+        )}
+
+        {/* Player Pool */}
+        {playerPool.size > 0 && (
+          <PlayerPoolPanel
+            poolMap={playerPool}
+            onPoolMapChange={setPlayerPool}
+            site={site}
+            defaultOpen={true}
+          />
+        )}
+
+        {/* Error */}
         {error && <ErrorDisplay message={error.message} rawError={error.raw} />}
 
-        {/* Results Section */}
+        {/* Pipeline steps banner */}
+        {pipelineSteps && (
+          <div className="bg-success-muted border border-success/40 rounded-xl px-4 py-3 mb-4 text-xs text-success">
+            <p className="mt-0 mb-2 font-bold text-sm text-success">⚡ Full Pipeline Completed</p>
+            <div className="flex flex-wrap gap-2">
+              {[
+                ['📁 Slate', pipelineSteps.slate_uploaded],
+                ['🩹 Injuries', pipelineSteps.injuries_refreshed ? '✓ refreshed' : '—'],
+                ['📊 Props', (pipelineSteps.props_refreshed as Record<string,unknown>)?.status === 'updated'
+                  ? `✓ ${(pipelineSteps.props_refreshed as Record<string,unknown>).players_covered} players`
+                  : String((pipelineSteps.props_refreshed as Record<string,unknown>)?.status ?? '—')],
+                ['🎯 Projected', `${pipelineSteps.projections_generated} players`],
+                ['📈 Ownership', pipelineSteps.ownership_model],
+                ['🏀 Lineups', `${pipelineSteps.lineups_generated}`],
+              ].map(([label, val]) => (
+                <span key={label} className="px-2.5 py-1 bg-surface-overlay border border-success/30 rounded text-[11px]">
+                  <span className="text-success/70">{label}:</span>{' '}
+                  <strong className="text-text-primary">{val}</strong>
+                </span>
+              ))}
+            </div>
+            <p className="mt-2 mb-0 text-[11px] text-success/60">
+              Projection source: L10 game-log rolling avg + DvP. DK/FD stock averages never used.
+            </p>
+          </div>
+        )}
+
+        {/* Results */}
         {result && (
           <>
-            {/* Stats Panel */}
-            <div className="bg-gray-800 rounded-lg p-6 mb-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">Results</h2>
+            {/* Stats panel */}
+            <div className="bg-surface-raised border border-surface-border rounded-xl mb-4 overflow-hidden">
+              <div className="px-5 py-3 border-b border-surface-border flex justify-between items-center">
+                <span className="text-sm font-bold text-text-primary">Results</span>
                 <button
                   onClick={handleDownloadCSV}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded font-semibold transition-colors"
+                  className="px-4 py-1.5 rounded text-sm font-semibold bg-success-muted text-success border border-success/40 hover:border-success/70 cursor-pointer transition-colors"
                 >
                   Download CSV
                 </button>
               </div>
-
-              {/* Run Parameters Used */}
-              {runParams && <RunParametersDisplay params={runParams} />}
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-gray-700 rounded p-3">
-                  <p className="text-sm text-gray-400">Total Lineups</p>
-                  <p className="text-xl font-bold">{result.total_lineups}</p>
+              <div className="px-5 py-3.5">
+                {runParams && <RunParametersDisplay params={runParams} />}
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="bg-surface-base border border-surface-border rounded-lg px-4 py-3">
+                    <p className="text-[11px] text-text-muted uppercase font-bold m-0 mb-1">Total Lineups</p>
+                    <p className="text-2xl font-extrabold text-text-primary m-0">{result.total_lineups}</p>
+                  </div>
+                  <div className="bg-surface-base border border-surface-border rounded-lg px-4 py-3">
+                    <p className="text-[11px] text-text-muted uppercase font-bold m-0 mb-1">Avg Projection</p>
+                    <p className="text-2xl font-extrabold text-primary m-0">{formatProjection(result.stats?.avg_projection ?? 0)}</p>
+                  </div>
+                  <div className="bg-surface-base border border-surface-border rounded-lg px-4 py-3">
+                    <p className="text-[11px] text-text-muted uppercase font-bold m-0 mb-1">Avg Salary</p>
+                    <p className="text-2xl font-extrabold text-text-primary m-0">{formatSalary(result.stats?.avg_salary ?? 0)}</p>
+                  </div>
+                  <div className="bg-surface-base border border-surface-border rounded-lg px-4 py-3">
+                    <p className="text-[11px] text-text-muted uppercase font-bold m-0 mb-1">Proj Range</p>
+                    <p className="text-2xl font-extrabold text-text-primary m-0">{result.stats?.projection_range ?? 'N/A'}</p>
+                  </div>
                 </div>
-                <div className="bg-gray-700 rounded p-3">
-                  <p className="text-sm text-gray-400">Avg Projection</p>
-                  <p className="text-xl font-bold">
-                    {formatProjection(result.stats?.avg_projection ?? 0)}
-                  </p>
-                </div>
-                <div className="bg-gray-700 rounded p-3">
-                  <p className="text-sm text-gray-400">Avg Salary</p>
-                  <p className="text-xl font-bold">
-                    {formatSalary(result.stats?.avg_salary ?? 0)}
-                  </p>
-                </div>
-                <div className="bg-gray-700 rounded p-3">
-                  <p className="text-sm text-gray-400">Projection Range</p>
-                  <p className="text-xl font-bold">
-                    {result.stats?.projection_range ?? 'N/A'}
-                  </p>
-                </div>
+                {result.message && (
+                  <p className="mt-3 mb-0 text-success text-sm">{result.message}</p>
+                )}
               </div>
-
-              {result.message && (
-                <p className="mt-4 text-green-400">{result.message}</p>
-              )}
             </div>
 
-            {/* Lineups Table */}
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">
+            {/* Lineups table */}
+            <div className="bg-surface-raised border border-surface-border rounded-xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-surface-border text-sm font-bold text-text-primary">
                 Lineup Preview (Top {result.lineups?.length ?? 0})
-              </h2>
-
+              </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full border-collapse text-sm">
                   <thead>
-                    <tr className="border-b border-gray-700">
-                      <th className="text-left py-3 px-2">#</th>
-                      {FD_SLOTS.map((slot) => (
-                        <th key={slot} className="text-left py-3 px-2">
-                          {slot.replace('_2', '')}
-                        </th>
+                    <tr>
+                      <th className={thCls}>#</th>
+                      {SITE_SLOT_CONFIG[site].map(slot => (
+                        <th key={slot} className={thCls}>{slot.replace('_2', '')}</th>
                       ))}
-                      <th className="text-right py-3 px-2">Salary</th>
-                      <th className="text-right py-3 px-2">Proj</th>
+                      <th className={cn(thCls, 'text-right')}>Salary</th>
+                      <th className={cn(thCls, 'text-right')}>Proj</th>
+                      <th className={cn(thCls, 'text-right')}>Own%</th>
+                      <th className={thCls}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {result.lineups?.map((lineup: FDLineup) => (
+                    {result.lineups?.map((lineup: FDLineup, i: number) => (
                       <tr
                         key={lineup.lineup_num}
-                        className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                        className={i % 2 === 0 ? 'bg-surface-raised' : 'bg-surface-base'}
                       >
-                        <td className="py-2 px-2 text-gray-400">
-                          {lineup.lineup_num}
-                        </td>
-                        {FD_SLOTS.map((slot) => (
-                          <td key={slot} className="py-2 px-2">
-                            {lineup[slot as SlotKey] || '-'}
+                        <td className={tdCls}>{lineup.lineup_num}</td>
+                        {SITE_SLOT_CONFIG[site].map(slot => (
+                          <td key={slot} className={tdCls}>
+                            {cleanName(lineup[slot as SlotKey])}
                           </td>
                         ))}
-                        <td className="py-2 px-2 text-right">
-                          {formatSalary(lineup.total_salary)}
-                        </td>
-                        <td className="py-2 px-2 text-right text-green-400">
+                        <td className={cn(tdCls, 'text-right')}>{formatSalary(lineup.total_salary)}</td>
+                        <td className={cn(tdCls, 'text-right text-success font-bold')}>
                           {formatProjection(lineup.projected_points)}
+                        </td>
+                        <td className={cn(
+                          tdCls, 'text-right font-mono',
+                          lineup.total_ownership != null
+                            ? (lineup.total_ownership < 150 ? 'text-success' : lineup.total_ownership < 200 ? 'text-warning' : 'text-danger')
+                            : 'text-text-muted',
+                        )}>
+                          {lineup.total_ownership != null ? `${lineup.total_ownership.toFixed(1)}%` : '—'}
+                        </td>
+                        <td className={cn(tdCls, 'text-right')}>
+                          <CopyLineupButton
+                            players={SITE_SLOT_CONFIG[site]
+                              .map(slot => lineup[slot as SlotKey] as string)
+                              .filter(Boolean)}
+                            lineupIndex={i}
+                          />
                         </td>
                       </tr>
                     ))}

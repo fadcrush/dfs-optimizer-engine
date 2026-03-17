@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/.next/cache/
+
+# Git / IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
+
+# Local data (volumes mount these at runtime, no need to copy into image)
+# Keep data/ directory structure but skip large DB files
+data/*.duckdb
+data/*.duckdb.wal
+data/backups/
+data/cache/
+
+# Secrets — never bake into image
+.env
+.env.*
+!.env.example
+
+# Dev/test artifacts
+tests/
+scripts/audit_project.py
+scripts/create_audit_zip*
+scripts/make_audit_zip*
+AUDIT_REPORT.md
+CLAUDE_AUDIT_EXPORT.txt
+*.zip
+
+# Build outputs
+outputs/

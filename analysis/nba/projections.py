@@ -1,7 +1,12 @@
-"""Custom NBA projection engine combining:
-- baseline per-minute production
-- expected minutes
-- defensive matchup adjustment
+"""
+DEPRECATED — this module has broken imports and is not used by the production pipeline.
+The canonical projection path is:
+
+    analysis.core.orchestrator.run_dfs_pipeline
+    → analysis.core.projection_engine.CanonicalNBAProjectionEngine
+    → analysis.shared.scoring.score_nba_row
+
+Do NOT import from this module.  It will be removed in a future cleanup pass.
 """
 
 import pandas as pd

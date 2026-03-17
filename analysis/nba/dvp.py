@@ -1,0 +1,137 @@
+"""
+Defense vs. Player (DvP) module for NBA projections.
+
+Computes per-opponent-team defensive strength from ``player_game_logs``
+in ``dfs_edge.duckdb``, then returns a multiplier per team that the
+projection engine applies to each player's base projection.
+
+How it works
+------------
+1. For each opposing team, calculate the average DK/FD points per player
+   per game they have allowed (last ``lookback_days`` days of data).
+2. Calculate the league-wide average for the same window.
+3. DvP multiplier = team_allowed_avg / league_avg
+
+   > 1.0  → soft defence  (opponent typically allows more pts → bump up projections)
+   < 1.0  → tough defence (opponent locks players down → trim projections)
+
+The multiplier is intentionally mild — it is capped at ±``max_adj`` of 1.0
+(default ±12 %) so a single bad defensive sample doesn't over-correct.
+
+Usage::
+    from analysis.nba.dvp import load_dvp_table
+    dvp = load_dvp_table(site="DK", lookback_days=30)
+    multiplier = dvp.get("BOS", 1.0)
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+from analysis.shared.db import get_conn  # noqa: E402
+
+_DEFAULT_DB = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "dfs_edge.duckdb"
+)
+
+
+def load_dvp_table(
+    site: str = "DK",
+    db_path: Path | str | None = None,
+    lookback_days: int = 30,
+    min_games: int = 5,
+    max_adj: float = 0.12,
+) -> dict[str, float]:
+    """Return a dict mapping 3-letter team abbreviation → DvP multiplier.
+
+    Args:
+        site:         ``"DK"`` or ``"FD"`` — which fantasy scoring to use.
+        db_path:      Override path to ``dfs_edge.duckdb``.
+        lookback_days: Only consider games within this many calendar days.
+        min_games:    Minimum player-games an opponent must have allowed to
+                      be included (avoids tiny-sample outliers early in season).
+        max_adj:      Cap the multiplier deviation from 1.0.
+                      With the default 0.12 the range is [0.88, 1.12].
+
+    Returns:
+        Dict of ``{"BOS": 0.93, "MIA": 1.07, ...}``  — defaults to 1.0 for any
+        team not present (neutral / no data).
+    """
+    resolved_db = Path(db_path) if db_path else _DEFAULT_DB
+
+    if not resolved_db.exists():
+        log.warning("DvP: dfs_edge.duckdb not found at %s — skipping", resolved_db)
+        return {}
+
+    try:
+        import duckdb
+    except ImportError:
+        log.warning("DvP: duckdb not installed — skipping")
+        return {}
+
+    pts_col = "dk_pts" if site.upper() == "DK" else "fd_pts"
+
+    sql = f"""
+        WITH recent AS (
+            SELECT
+                opponent,
+                {pts_col} AS pts
+            FROM player_game_logs
+            WHERE minutes > 0
+              AND game_date >= CURRENT_DATE - INTERVAL '{lookback_days}' DAY
+        ),
+        team_allowed AS (
+            SELECT
+                opponent                       AS team,
+                ROUND(AVG(pts), 4)             AS avg_allowed,
+                COUNT(*)                       AS n_player_games
+            FROM recent
+            GROUP BY opponent
+            HAVING COUNT(*) >= {min_games}
+        ),
+        league_avg AS (
+            SELECT ROUND(AVG(pts), 4) AS league_avg_pts
+            FROM recent
+        )
+        SELECT
+            t.team,
+            t.avg_allowed,
+            l.league_avg_pts,
+            ROUND(t.avg_allowed / NULLIF(l.league_avg_pts, 0), 6) AS raw_multiplier
+        FROM team_allowed t
+        CROSS JOIN league_avg l
+        ORDER BY raw_multiplier DESC
+    """
+
+    try:
+        con = get_conn(resolved_db)
+        rows = con.execute(sql).fetchall()
+    except Exception as exc:
+        log.warning("DvP query failed: %s", exc)
+        return {}
+
+    if not rows:
+        log.info("DvP: no rows returned (too few games in window) — neutral multipliers")
+        return {}
+
+    dvp: dict[str, float] = {}
+    for team, avg_allowed, league_avg, raw_mult in rows:
+        if raw_mult is None or league_avg is None or league_avg == 0:
+            dvp[team] = 1.0
+            continue
+        # Clamp to [1 - max_adj, 1 + max_adj]
+        clamped = max(1.0 - max_adj, min(1.0 + max_adj, float(raw_mult)))
+        dvp[team] = round(clamped, 4)
+
+    log.info(
+        "DvP table loaded: %d teams | site=%s | L%dd | top-soft: %s | top-tough: %s",
+        len(dvp),
+        site,
+        lookback_days,
+        max(dvp, key=dvp.get, default="-"),
+        min(dvp, key=dvp.get, default="-"),
+    )
+    return dvp

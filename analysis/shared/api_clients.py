@@ -83,6 +83,95 @@ class TheOddsAPIClient(BaseAPIClient):
         
         logger.info(f"Fetched odds for {len(games)} NBA games")
         return games
+
+    def get_nba_events(self, date: Optional[str] = None) -> List[Dict]:
+        """
+        Fetch NBA event IDs for a given date (needed to query player props).
+
+        Returns:
+            List of event dicts: {event_id, home_team, away_team, commence_time}
+        """
+        params = {
+            'apiKey': self.api_key,
+            'sport': 'basketball_nba',
+            'dateFormat': 'iso',
+        }
+        if date:
+            params['commenceTimeFrom'] = f"{date}T00:00:00Z"
+            params['commenceTimeTo'] = f"{date}T23:59:59Z"
+
+        data = self._make_request('sports/basketball_nba/events', params)
+        if not isinstance(data, list):
+            return []
+
+        events = [
+            {
+                'event_id': e.get('id'),
+                'home_team': e.get('home_team'),
+                'away_team': e.get('away_team'),
+                'commence_time': e.get('commence_time'),
+            }
+            for e in data
+            if e.get('id')
+        ]
+        logger.info(f"Fetched {len(events)} NBA events for props lookup")
+        return events
+
+    def get_player_props(
+        self,
+        event_id: str,
+        markets: str = "player_points,player_rebounds,player_assists,player_threes",
+        regions: str = "us",
+        bookmakers: str = "draftkings,fanduel,betmgm,caesars",
+    ) -> List[Dict]:
+        """
+        Fetch player prop lines for a single NBA event.
+
+        Returns a flat list of prop records:
+            {player, market, line, over_odds, under_odds, bookmaker, event_id}
+
+        The Odds API endpoint:
+            GET /v4/sports/basketball_nba/events/{event_id}/odds
+                ?apiKey=...&markets=player_points,...&regions=us&oddsFormat=american
+        """
+        params = {
+            'apiKey': self.api_key,
+            'regions': regions,
+            'markets': markets,
+            'oddsFormat': 'american',
+            'bookmakers': bookmakers,
+        }
+        data = self._make_request(
+            f'sports/basketball_nba/events/{event_id}/odds',
+            params,
+        )
+        if not isinstance(data, dict):
+            return []
+
+        props: List[Dict] = []
+        for book in data.get('bookmakers', []):
+            bk = book.get('key', 'unknown')
+            for market in book.get('markets', []):
+                mkt_key = market.get('key', '')
+                for outcome in market.get('outcomes', []):
+                    if outcome.get('name') not in ('Over', 'Under'):
+                        continue
+                    desc = outcome.get('description', '')  # player name for prop markets
+                    props.append({
+                        'event_id': event_id,
+                        'player': desc,
+                        'market': mkt_key,
+                        'line': outcome.get('point'),
+                        'side': outcome.get('name'),   # 'Over' or 'Under'
+                        'price': outcome.get('price'),
+                        'bookmaker': bk,
+                    })
+
+        logger.info(
+            f"Fetched {len(props)} prop outcomes for event {event_id} "
+            f"across {len(data.get('bookmakers', []))} books"
+        )
+        return props
     
     def _parse_bookmaker_odds(self, bookmakers: List[Dict]) -> Dict:
         """Parse bookmaker odds to get consensus lines"""
@@ -178,6 +267,224 @@ class SportsDataAPIClient(BaseAPIClient):
                     lineups.append(lineup)
         
         return lineups
+
+
+class NBAFreeDataClient:
+    """
+    Free NBA data client powered entirely by nba_api (stats.nba.com).
+    Drop-in replacement for SportsDataAPIClient — no API key, no subscription.
+
+    Endpoints used:
+      • LeagueDashPlayerStats  → season averages for all players
+      • LeagueGameLog          → per-game box scores by date
+      • InjuryReport           → current injury list (best-effort)
+
+    All methods return plain list-of-dict so the rest of the pipeline
+    can treat them identically to the old SportsData responses.
+    """
+
+    # NBA team abbreviation → full name (for matching Vegas lines)
+    _TEAM_ABBR: Dict[str, str] = {
+        "ATL": "Atlanta Hawks", "BOS": "Boston Celtics", "BKN": "Brooklyn Nets",
+        "CHA": "Charlotte Hornets", "CHI": "Chicago Bulls", "CLE": "Cleveland Cavaliers",
+        "DAL": "Dallas Mavericks", "DEN": "Denver Nuggets", "DET": "Detroit Pistons",
+        "GSW": "Golden State Warriors", "HOU": "Houston Rockets", "IND": "Indiana Pacers",
+        "LAC": "LA Clippers", "LAL": "Los Angeles Lakers", "MEM": "Memphis Grizzlies",
+        "MIA": "Miami Heat", "MIL": "Milwaukee Bucks", "MIN": "Minnesota Timberwolves",
+        "NOP": "New Orleans Pelicans", "NYK": "New York Knicks", "OKC": "Oklahoma City Thunder",
+        "ORL": "Orlando Magic", "PHI": "Philadelphia 76ers", "PHX": "Phoenix Suns",
+        "POR": "Portland Trail Blazers", "SAC": "Sacramento Kings", "SAS": "San Antonio Spurs",
+        "TOR": "Toronto Raptors", "UTA": "Utah Jazz", "WAS": "Washington Wizards",
+    }
+
+    def __init__(self):
+        # Lazy import so the rest of the project works even if nba_api is absent
+        import importlib
+        self._nba_api_available = importlib.util.find_spec("nba_api") is not None
+        if not self._nba_api_available:
+            logger.warning("nba_api not installed — NBAFreeDataClient will return empty results")
+
+    # ------------------------------------------------------------------
+    # Public API (mirrors SportsDataAPIClient interface)
+    # ------------------------------------------------------------------
+
+    def get_player_stats_season(self, season: str = "2025") -> List[Dict]:
+        """
+        Season averages for every active NBA player.
+
+        Normalises column names to the legacy SportsData schema:
+          Player, PlayerID, Team, MP, PTS, REB, AST, STL, BLK,
+          FGM, FGA, FG_PCT, FG3M, FG3A, FG3_PCT, FTM, FTA, FT_PCT,
+          TOV, GP, PLUS_MINUS
+        """
+        if not self._nba_api_available:
+            return []
+        try:
+            from nba_api.stats.endpoints import leaguedashplayerstats
+            # nba_api uses "2024-25" style season IDs
+            season_id = self._season_id(int(season))
+            ls = leaguedashplayerstats.LeagueDashPlayerStats(
+                season=season_id,
+                per_mode_simple="PerGame",
+                timeout=60,
+            )
+            df = ls.get_data_frames()[0]
+            # Rename to legacy schema
+            rename = {
+                "PLAYER_NAME": "Player",
+                "PLAYER_ID": "PlayerID",
+                "TEAM_ABBREVIATION": "Team",
+                "MIN": "MP",
+                "PTS": "PTS",
+                "REB": "REB",
+                "AST": "AST",
+                "STL": "STL",
+                "BLK": "BLK",
+                "FGM": "FGM",
+                "FGA": "FGA",
+                "FG_PCT": "FG_PCT",
+                "FG3M": "FG3M",
+                "FG3A": "FG3A",
+                "FG3_PCT": "FG3_PCT",
+                "FTM": "FTM",
+                "FTA": "FTA",
+                "FT_PCT": "FT_PCT",
+                "TOV": "TOV",
+                "GP": "GP",
+                "PLUS_MINUS": "PLUS_MINUS",
+                "NBA_FANTASY_PTS": "FantasyPoints",
+            }
+            df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+            logger.info(f"nba_api: fetched season stats for {len(df)} players (season {season_id})")
+            return df.to_dict("records")
+        except Exception as e:
+            logger.warning(f"get_player_stats_season failed: {e}")
+            return []
+
+    def get_player_game_stats(self, date: str) -> List[Dict]:
+        """
+        Box-score stats for every player who played on *date* (YYYY-MM-DD).
+
+        Returns rows with: Player, PlayerID, Team, GameDate, MP, PTS, REB,
+        AST, STL, BLK, FGM, FGA, FG3M, FTM, FTA, TOV, PLUS_MINUS
+        """
+        if not self._nba_api_available:
+            return []
+        try:
+            from nba_api.stats.endpoints import leaguegamelog
+            gl = leaguegamelog.LeagueGameLog(
+                season=self._season_id_from_date(date),
+                date_from_nullable=date,
+                date_to_nullable=date,
+                player_or_team_abbreviation="P",
+                timeout=60,
+            )
+            df = gl.get_data_frames()[0]
+            rename = {
+                "PLAYER_NAME": "Player",
+                "PLAYER_ID": "PlayerID",
+                "TEAM_ABBREVIATION": "Team",
+                "GAME_DATE": "GameDate",
+                "MIN": "MP",
+                "PTS": "PTS",
+                "REB": "REB",
+                "AST": "AST",
+                "STL": "STL",
+                "BLK": "BLK",
+                "FGM": "FGM",
+                "FGA": "FGA",
+                "FG3M": "FG3M",
+                "FTM": "FTM",
+                "FTA": "FTA",
+                "TOV": "TOV",
+                "PLUS_MINUS": "PLUS_MINUS",
+            }
+            df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+            return df.to_dict("records")
+        except Exception as e:
+            logger.warning(f"get_player_game_stats({date}) failed: {e}")
+            return []
+
+    def get_injuries(self) -> List[Dict]:
+        """
+        Current NBA injury report.  Returns list of dicts with keys:
+          Player, Team, Status, Description.
+
+        Uses nba_api InjuryReport if available; falls back to the NBA
+        CDN JSON feed (no auth required).
+        """
+        if not self._nba_api_available:
+            return []
+        try:
+            from nba_api.stats.endpoints import injuryreport
+            rpt = injuryreport.InjuryReport(timeout=30)
+            df = rpt.get_data_frames()[0]
+            # normalise
+            rename = {
+                "PlayerName": "Player",
+                "Team": "Team",
+                "Status": "Status",
+                "Reason": "Description",
+            }
+            df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+            result = df.to_dict("records")
+            logger.info(f"nba_api: fetched {len(result)} injury rows")
+            return result
+        except Exception:
+            pass
+        # Fallback: NBA CDN league injury report (public, no key)
+        try:
+            import requests as _req
+            url = "https://stats.nba.com/js/data/leaders/00_injury_report.json"
+            headers = {
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://www.nba.com/",
+            }
+            resp = _req.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            raw = resp.json()
+            injuries = []
+            for row in raw.get("injury", []):
+                injuries.append({
+                    "Player": row.get("PLAYER_FIRST_NAME", "") + " " + row.get("PLAYER_LAST_NAME", ""),
+                    "Team": row.get("TEAM_ABBREVIATION", ""),
+                    "Status": row.get("INJURY_STATUS", ""),
+                    "Description": row.get("INJURY_DESCRIPTION", ""),
+                })
+            logger.info(f"nba_api CDN: fetched {len(injuries)} injury rows")
+            return injuries
+        except Exception as e:
+            logger.warning(f"get_injuries fallback failed: {e}")
+            return []
+
+    def get_starting_lineups(self, date: str) -> List[Dict]:
+        """
+        Pre-game starting lineups.
+
+        nba_api does not expose confirmed starters before tip-off.
+        Returns empty list — the projection engine treats this as
+        'lineups unknown' and uses usage-rate adjustments instead.
+        (Wire up a Rotowire/RotoGrinders scraper here later if needed.)
+        """
+        logger.debug("get_starting_lineups: pre-game lineups not available from nba_api; returning []")
+        return []
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _season_id(year: int) -> str:
+        """Convert 4-digit year to nba_api season string, e.g. 2025 → '2024-25'."""
+        return f"{year - 1}-{str(year)[2:]}"
+
+    @staticmethod
+    def _season_id_from_date(date: str) -> str:
+        """Derive season from a game date string (YYYY-MM-DD)."""
+        dt = datetime.strptime(date, "%Y-%m-%d")
+        # NBA season starts in October; dates Jan-Sep belong to the current year's season
+        year = dt.year if dt.month >= 10 else dt.year
+        return NBAFreeDataClient._season_id(year)
 
 
 class BallDontLieAPIClient(BaseAPIClient):

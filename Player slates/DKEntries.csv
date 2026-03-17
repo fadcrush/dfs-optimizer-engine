@@ -1,0 +1,215 @@
+Entry ID,Contest Name,Contest ID,Entry Fee,QB,RB,RB,WR,WR,WR,TE,FLEX,DST,,Instructions
+5043411105,NFL $400K Play-Action [20 Entry Max],187209830,$3,Caleb Williams (41519687),James Cook III (41519711),RJ Harvey (41519715),Davante Adams (41519819),Brandin Cooks (41519849),DJ Moore (41519829),Colby Parkinson (41519975),Christian McCaffrey (41519709),49ers (41520058),,1. Column A lists all of your contest entries for this draftgroup
+5043482021,NFL $75K First Down [20 Entry Max],187222970,$1,Caleb Williams (41519687),James Cook III (41519711),Christian McCaffrey (41519709),Jauan Jennings (41519825),Christian Kirk (41519847),Rashid Shaheed (41519845),Dalton Schultz (41519973),RJ Harvey (41519715),Seahawks (41520053),,2. Your current lineup is listed next to each entry (blank for reservations)
+5042055170,$2K T-Mobile Game Day Draft Challenge,187262641,$0,,,,,,,,,,,3. You can change the lineup for an entry by entering the IDs of the players in the row next to that entry
+,,,,,,,,,,,,,,4. Use data from the Name+ID column or the ID column; you cannot use just the player's name
+,,,,,,,,,,,,,,5. For faster processing only include entries you are changing in the file you upload
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,Position,Name + ID,Name,ID,Roster Position,Salary,Game Info,TeamAbbrev,AvgPointsPerGame
+,,,,,,,,,,,,,,WR,Puka Nacua (41519813),Puka Nacua,41519813,WR/FLEX,9000,LAR@CHI 01/18/2026 06:30PM ET,LAR,25.38
+,,,,,,,,,,,,,,RB,Christian McCaffrey (41519709),Christian McCaffrey,41519709,RB/FLEX,8800,SF@SEA 01/17/2026 08:00PM ET,SF,25.44
+,,,,,,,,,,,,,,WR,Jaxon Smith-Njigba (41519815),Jaxon Smith-Njigba,41519815,WR/FLEX,8500,SF@SEA 01/17/2026 08:00PM ET,SEA,22.82
+,,,,,,,,,,,,,,RB,James Cook III (41519711),James Cook III,41519711,RB/FLEX,7300,BUF@DEN 01/17/2026 04:30PM ET,BUF,18.85
+,,,,,,,,,,,,,,QB,Josh Allen (41519684),Josh Allen,41519684,QB,7100,BUF@DEN 01/17/2026 04:30PM ET,BUF,23.16
+,,,,,,,,,,,,,,WR,Nico Collins (41519817),Nico Collins,41519817,WR/FLEX,7000,HOU@NE 01/18/2026 03:00PM ET,HOU,15.08
+,,,,,,,,,,,,,,QB,Matthew Stafford (41519685),Matthew Stafford,41519685,QB,6600,LAR@CHI 01/18/2026 06:30PM ET,LAR,22.20
+,,,,,,,,,,,,,,RB,Kyren Williams (41519713),Kyren Williams,41519713,RB/FLEX,6600,LAR@CHI 01/18/2026 06:30PM ET,LAR,15.77
+,,,,,,,,,,,,,,WR,Davante Adams (41519819),Davante Adams,41519819,WR/FLEX,6500,LAR@CHI 01/18/2026 06:30PM ET,LAR,15.87
+,,,,,,,,,,,,,,QB,Drake Maye (41519686),Drake Maye,41519686,QB,6300,HOU@NE 01/18/2026 03:00PM ET,NE,21.40
+,,,,,,,,,,,,,,RB,RJ Harvey (41519715),RJ Harvey,41519715,RB/FLEX,6200,BUF@DEN 01/17/2026 04:30PM ET,DEN,12.21
+,,,,,,,,,,,,,,QB,Caleb Williams (41519687),Caleb Williams,41519687,QB,6100,LAR@CHI 01/18/2026 06:30PM ET,CHI,19.84
+,,,,,,,,,,,,,,RB,D'Andre Swift (41519717),D'Andre Swift,41519717,RB/FLEX,6000,LAR@CHI 01/18/2026 06:30PM ET,CHI,15.11
+,,,,,,,,,,,,,,WR,Courtland Sutton (41519821),Courtland Sutton,41519821,WR/FLEX,5900,BUF@DEN 01/17/2026 04:30PM ET,DEN,13.28
+,,,,,,,,,,,,,,RB,Woody Marks (41519719),Woody Marks,41519719,RB/FLEX,5900,HOU@NE 01/18/2026 03:00PM ET,HOU,10.08
+,,,,,,,,,,,,,,QB,Bo Nix (41519688),Bo Nix,41519688,QB,5800,BUF@DEN 01/17/2026 04:30PM ET,DEN,19.40
+,,,,,,,,,,,,,,RB,Rhamondre Stevenson (41519721),Rhamondre Stevenson,41519721,RB/FLEX,5800,HOU@NE 01/18/2026 03:00PM ET,NE,13.37
+,,,,,,,,,,,,,,WR,Stefon Diggs (41519823),Stefon Diggs,41519823,WR/FLEX,5800,HOU@NE 01/18/2026 03:00PM ET,NE,12.72
+,,,,,,,,,,,,,,RB,TreVeyon Henderson (41519723),TreVeyon Henderson,41519723,RB/FLEX,5700,HOU@NE 01/18/2026 03:00PM ET,NE,12.1
+,,,,,,,,,,,,,,QB,Brock Purdy (41519689),Brock Purdy,41519689,QB,5600,SF@SEA 01/17/2026 08:00PM ET,SF,21.43
+,,,,,,,,,,,,,,RB,Kenneth Walker III (41519725),Kenneth Walker III,41519725,RB/FLEX,5500,SF@SEA 01/17/2026 08:00PM ET,SEA,11.64
+,,,,,,,,,,,,,,TE,Colston Loveland (41519967),Colston Loveland,41519967,TE/FLEX,5500,LAR@CHI 01/18/2026 06:30PM ET,CHI,11.46
+,,,,,,,,,,,,,,QB,Sam Darnold (41519690),Sam Darnold,41519690,QB,5400,SF@SEA 01/17/2026 08:00PM ET,SEA,15.38
+,,,,,,,,,,,,,,WR,Jauan Jennings (41519825),Jauan Jennings,41519825,WR/FLEX,5400,SF@SEA 01/17/2026 08:00PM ET,SF,11.56
+,,,,,,,,,,,,,,RB,Zach Charbonnet (41519727),Zach Charbonnet,41519727,RB/FLEX,5300,SF@SEA 01/17/2026 08:00PM ET,SEA,11.52
+,,,,,,,,,,,,,,WR,Rome Odunze (41519827),Rome Odunze,41519827,WR/FLEX,5300,LAR@CHI 01/18/2026 06:30PM ET,CHI,12.19
+,,,,,,,,,,,,,,QB,C.J. Stroud (41519691),C.J. Stroud,41519691,QB,5200,HOU@NE 01/18/2026 03:00PM ET,HOU,15.37
+,,,,,,,,,,,,,,WR,DJ Moore (41519829),DJ Moore,41519829,WR/FLEX,5200,LAR@CHI 01/18/2026 06:30PM ET,CHI,10.50
+,,,,,,,,,,,,,,WR,Khalil Shakir (41519831),Khalil Shakir,41519831,WR/FLEX,5100,BUF@DEN 01/17/2026 04:30PM ET,BUF,11.21
+,,,,,,,,,,,,,,RB,Blake Corum (41519729),Blake Corum,41519729,RB/FLEX,5100,LAR@CHI 01/18/2026 06:30PM ET,LAR,7.39
+,,,,,,,,,,,,,,RB,Kyle Monangai (41519731),Kyle Monangai,41519731,RB/FLEX,5000,LAR@CHI 01/18/2026 06:30PM ET,CHI,8.81
+,,,,,,,,,,,,,,WR,Troy Franklin (41519833),Troy Franklin,41519833,WR/FLEX,4900,BUF@DEN 01/17/2026 04:30PM ET,DEN,10.48
+,,,,,,,,,,,,,,RB,Nick Chubb (41519733),Nick Chubb,41519733,RB/FLEX,4900,HOU@NE 01/18/2026 03:00PM ET,HOU,5.82
+,,,,,,,,,,,,,,RB,Brian Robinson Jr. (41519735),Brian Robinson Jr.,41519735,RB/FLEX,4800,SF@SEA 01/17/2026 08:00PM ET,SF,3.47
+,,,,,,,,,,,,,,WR,Ricky Pearsall (41519835),Ricky Pearsall,41519835,WR/FLEX,4800,SF@SEA 01/17/2026 08:00PM ET,SF,10.51
+,,,,,,,,,,,,,,WR,Luther Burden III (41519837),Luther Burden III,41519837,WR/FLEX,4700,LAR@CHI 01/18/2026 06:30PM ET,CHI,8.79
+,,,,,,,,,,,,,,RB,Ray Davis (41519737),Ray Davis,41519737,RB/FLEX,4600,BUF@DEN 01/17/2026 04:30PM ET,BUF,3.67
+,,,,,,,,,,,,,,WR,Jayden Higgins (41519839),Jayden Higgins,41519839,WR/FLEX,4600,HOU@NE 01/18/2026 03:00PM ET,HOU,7.58
+,,,,,,,,,,,,,,RB,Ty Johnson (41519739),Ty Johnson,41519739,RB/FLEX,4500,BUF@DEN 01/17/2026 04:30PM ET,BUF,5.9
+,,,,,,,,,,,,,,TE,Hunter Henry (41519969),Hunter Henry,41519969,TE/FLEX,4500,HOU@NE 01/18/2026 03:00PM ET,NE,10.96
+,,,,,,,,,,,,,,WR,Demarcus Robinson (41519841),Demarcus Robinson,41519841,WR/FLEX,4400,SF@SEA 01/17/2026 08:00PM ET,SF,5.62
+,,,,,,,,,,,,,,TE,Dalton Kincaid (41519971),Dalton Kincaid,41519971,TE/FLEX,4300,BUF@DEN 01/17/2026 04:30PM ET,BUF,11.07
+,,,,,,,,,,,,,,RB,Kyle Juszczyk (41519741),Kyle Juszczyk,41519741,RB/FLEX,4300,SF@SEA 01/17/2026 08:00PM ET,SF,3.66
+,,,,,,,,,,,,,,WR,Kayshon Boutte (41519843),Kayshon Boutte,41519843,WR/FLEX,4300,HOU@NE 01/18/2026 03:00PM ET,NE,9.18
+,,,,,,,,,,,,,,RB,Jaleel McLaughlin (41519743),Jaleel McLaughlin,41519743,RB/FLEX,4200,BUF@DEN 01/17/2026 04:30PM ET,DEN,3.92
+,,,,,,,,,,,,,,WR,Rashid Shaheed (41519845),Rashid Shaheed,41519845,WR/FLEX,4200,SF@SEA 01/17/2026 08:00PM ET,SEA,8.92
+,,,,,,,,,,,,,,TE,Dalton Schultz (41519973),Dalton Schultz,41519973,TE/FLEX,4200,HOU@NE 01/18/2026 03:00PM ET,HOU,10.11
+,,,,,,,,,,,,,,WR,Christian Kirk (41519847),Christian Kirk,41519847,WR/FLEX,4100,HOU@NE 01/18/2026 03:00PM ET,HOU,6.38
+,,,,,,,,,,,,,,QB,Jarrett Stidham (41519693),Jarrett Stidham,41519693,QB,4000,BUF@DEN 01/17/2026 04:30PM ET,DEN,-0.1
+,,,,,,,,,,,,,,QB,Sam Ehlinger (41519706),Sam Ehlinger,41519706,QB,4000,BUF@DEN 01/17/2026 04:30PM ET,DEN,0
+,,,,,,,,,,,,,,QB,Mitchell Trubisky (41519707),Mitchell Trubisky,41519707,QB,4000,BUF@DEN 01/17/2026 04:30PM ET,BUF,7.78
+,,,,,,,,,,,,,,QB,Shane Buechele (41519708),Shane Buechele,41519708,QB,4000,BUF@DEN 01/17/2026 04:30PM ET,BUF,3.92
+,,,,,,,,,,,,,,RB,Tyler Badie (41519745),Tyler Badie,41519745,RB/FLEX,4000,BUF@DEN 01/17/2026 04:30PM ET,DEN,2.21
+,,,,,,,,,,,,,,RB,J.K. Dobbins (41519799),J.K. Dobbins,41519799,RB/FLEX,4000,BUF@DEN 01/17/2026 04:30PM ET,DEN,12.19
+,,,,,,,,,,,,,,RB,Michael Burton (41519801),Michael Burton,41519801,RB/FLEX,4000,BUF@DEN 01/17/2026 04:30PM ET,DEN,0
+,,,,,,,,,,,,,,RB,Adam Prentice (41519803),Adam Prentice,41519803,RB/FLEX,4000,BUF@DEN 01/17/2026 04:30PM ET,DEN,0.92
+,,,,,,,,,,,,,,RB,Cody Schrader (41519805),Cody Schrader,41519805,RB/FLEX,4000,BUF@DEN 01/17/2026 04:30PM ET,DEN,0
+,,,,,,,,,,,,,,RB,Deuce Vaughn (41519807),Deuce Vaughn,41519807,RB/FLEX,4000,BUF@DEN 01/17/2026 04:30PM ET,DEN,0
+,,,,,,,,,,,,,,RB,Reggie Gilliam (41519809),Reggie Gilliam,41519809,RB/FLEX,4000,BUF@DEN 01/17/2026 04:30PM ET,BUF,0.27
+,,,,,,,,,,,,,,RB,Frank Gore Jr. (41519811),Frank Gore Jr.,41519811,RB/FLEX,4000,BUF@DEN 01/17/2026 04:30PM ET,BUF,1.6
+,,,,,,,,,,,,,,WR,Brandin Cooks (41519849),Brandin Cooks,41519849,WR/FLEX,4000,BUF@DEN 01/17/2026 04:30PM ET,BUF,3.98
+,,,,,,,,,,,,,,QB,Drew Lock (41519692),Drew Lock,41519692,QB,4000,SF@SEA 01/17/2026 08:00PM ET,SEA,0.02
+,,,,,,,,,,,,,,QB,Mac Jones (41519694),Mac Jones,41519694,QB,4000,SF@SEA 01/17/2026 08:00PM ET,SF,13.37
+,,,,,,,,,,,,,,QB,Jalen Milroe (41519703),Jalen Milroe,41519703,QB,4000,SF@SEA 01/17/2026 08:00PM ET,SEA,-0.2
+,,,,,,,,,,,,,,QB,Kurtis Rourke (41519704),Kurtis Rourke,41519704,QB,4000,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,QB,Adrian Martinez (41519705),Adrian Martinez,41519705,QB,4000,SF@SEA 01/17/2026 08:00PM ET,SF,-0.1
+,,,,,,,,,,,,,,RB,George Holani (41519781),George Holani,41519781,RB/FLEX,4000,SF@SEA 01/17/2026 08:00PM ET,SEA,1.44
+,,,,,,,,,,,,,,RB,Kenny McIntosh (41519783),Kenny McIntosh,41519783,RB/FLEX,4000,SF@SEA 01/17/2026 08:00PM ET,SEA,0
+,,,,,,,,,,,,,,RB,Robbie Ouzts (41519785),Robbie Ouzts,41519785,RB/FLEX,4000,SF@SEA 01/17/2026 08:00PM ET,SEA,0
+,,,,,,,,,,,,,,RB,Brady Russell (41519787),Brady Russell,41519787,RB/FLEX,4000,SF@SEA 01/17/2026 08:00PM ET,SEA,0
+,,,,,,,,,,,,,,RB,Cam Akers (41519789),Cam Akers,41519789,RB/FLEX,4000,SF@SEA 01/17/2026 08:00PM ET,SEA,1.20
+,,,,,,,,,,,,,,RB,Velus Jones Jr. (41519791),Velus Jones Jr.,41519791,RB/FLEX,4000,SF@SEA 01/17/2026 08:00PM ET,SEA,0.4
+,,,,,,,,,,,,,,RB,Jordan James (41519793),Jordan James,41519793,RB/FLEX,4000,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,RB,Isaac Guerendo (41519795),Isaac Guerendo,41519795,RB/FLEX,4000,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,RB,Patrick Taylor Jr. (41519797),Patrick Taylor Jr.,41519797,RB/FLEX,4000,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,QB,Joshua Dobbs (41519699),Joshua Dobbs,41519699,QB,4000,HOU@NE 01/18/2026 03:00PM ET,NE,0.52
+,,,,,,,,,,,,,,QB,Tommy DeVito (41519700),Tommy DeVito,41519700,QB,4000,HOU@NE 01/18/2026 03:00PM ET,NE,0
+,,,,,,,,,,,,,,QB,Davis Mills (41519701),Davis Mills,41519701,QB,4000,HOU@NE 01/18/2026 03:00PM ET,HOU,11.6
+,,,,,,,,,,,,,,QB,Graham Mertz (41519702),Graham Mertz,41519702,QB,4000,HOU@NE 01/18/2026 03:00PM ET,HOU,0
+,,,,,,,,,,,,,,RB,Antonio Gibson (41519759),Antonio Gibson,41519759,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,NE,4.84
+,,,,,,,,,,,,,,RB,Terrell Jennings (41519761),Terrell Jennings,41519761,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,NE,2.17
+,,,,,,,,,,,,,,RB,Lan Larison (41519763),Lan Larison,41519763,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,NE,0
+,,,,,,,,,,,,,,RB,Deneric Prince (41519765),Deneric Prince,41519765,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,NE,0
+,,,,,,,,,,,,,,RB,Brock Lampe (41519767),Brock Lampe,41519767,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,NE,0
+,,,,,,,,,,,,,,RB,Jack Westover (41519769),Jack Westover,41519769,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,NE,0.16
+,,,,,,,,,,,,,,RB,Elijah Mitchell (41519771),Elijah Mitchell,41519771,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,NE,0
+,,,,,,,,,,,,,,RB,Jawhar Jordan (41519773),Jawhar Jordan,41519773,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,HOU,8.18
+,,,,,,,,,,,,,,RB,Dare Ogunbowale (41519775),Dare Ogunbowale,41519775,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,HOU,1.39
+,,,,,,,,,,,,,,RB,British Brooks (41519777),British Brooks,41519777,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,HOU,0.49
+,,,,,,,,,,,,,,RB,Joe Mixon (41519779),Joe Mixon,41519779,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,HOU,0
+,,,,,,,,,,,,,,RB,D'Ernest Johnson (41541735),D'Ernest Johnson,41541735,RB/FLEX,4000,HOU@NE 01/18/2026 03:00PM ET,NE,0.28
+,,,,,,,,,,,,,,QB,Jimmy Garoppolo (41519695),Jimmy Garoppolo,41519695,QB,4000,LAR@CHI 01/18/2026 06:30PM ET,LAR,-0.33
+,,,,,,,,,,,,,,QB,Stetson Bennett IV (41519696),Stetson Bennett IV,41519696,QB,4000,LAR@CHI 01/18/2026 06:30PM ET,LAR,0
+,,,,,,,,,,,,,,QB,Tyson Bagent (41519697),Tyson Bagent,41519697,QB,4000,LAR@CHI 01/18/2026 06:30PM ET,CHI,0.86
+,,,,,,,,,,,,,,QB,Case Keenum (41519698),Case Keenum,41519698,QB,4000,LAR@CHI 01/18/2026 06:30PM ET,CHI,0
+,,,,,,,,,,,,,,RB,Ronnie Rivers (41519747),Ronnie Rivers,41519747,RB/FLEX,4000,LAR@CHI 01/18/2026 06:30PM ET,LAR,0.38
+,,,,,,,,,,,,,,RB,Jarquez Hunter (41519749),Jarquez Hunter,41519749,RB/FLEX,4000,LAR@CHI 01/18/2026 06:30PM ET,LAR,0
+,,,,,,,,,,,,,,RB,Travis Homer (41519751),Travis Homer,41519751,RB/FLEX,4000,LAR@CHI 01/18/2026 06:30PM ET,CHI,-0.02
+,,,,,,,,,,,,,,RB,Roschon Johnson (41519753),Roschon Johnson,41519753,RB/FLEX,4000,LAR@CHI 01/18/2026 06:30PM ET,CHI,0.24
+,,,,,,,,,,,,,,RB,Deion Hankins (41519755),Deion Hankins,41519755,RB/FLEX,4000,LAR@CHI 01/18/2026 06:30PM ET,CHI,0
+,,,,,,,,,,,,,,RB,Brittain Brown (41519757),Brittain Brown,41519757,RB/FLEX,4000,LAR@CHI 01/18/2026 06:30PM ET,CHI,3.23
+,,,,,,,,,,,,,,WR,Pat Bryant (41519851),Pat Bryant,41519851,WR/FLEX,3900,BUF@DEN 01/17/2026 04:30PM ET,DEN,4.99
+,,,,,,,,,,,,,,WR,Kyle Williams (41519853),Kyle Williams,41519853,WR/FLEX,3800,HOU@NE 01/18/2026 03:00PM ET,NE,2.83
+,,,,,,,,,,,,,,WR,Kendrick Bourne (41519855),Kendrick Bourne,41519855,WR/FLEX,3700,SF@SEA 01/17/2026 08:00PM ET,SF,5.77
+,,,,,,,,,,,,,,TE,Colby Parkinson (41519975),Colby Parkinson,41519975,TE/FLEX,3700,LAR@CHI 01/18/2026 06:30PM ET,LAR,8.89
+,,,,,,,,,,,,,,TE,AJ Barner (41519977),AJ Barner,41519977,TE/FLEX,3600,SF@SEA 01/17/2026 08:00PM ET,SEA,8.66
+,,,,,,,,,,,,,,WR,Jaylin Noel (41519857),Jaylin Noel,41519857,WR/FLEX,3600,HOU@NE 01/18/2026 03:00PM ET,HOU,3.8
+,,,,,,,,,,,,,,DST,Patriots  (41520051),Patriots ,41520051,DST,3600,HOU@NE 01/18/2026 03:00PM ET,NE,7.89
+,,,,,,,,,,,,,,WR,Keon Coleman (41519861),Keon Coleman,41519861,WR/FLEX,3500,BUF@DEN 01/17/2026 04:30PM ET,BUF,7.93
+,,,,,,,,,,,,,,TE,Evan Engram (41519979),Evan Engram,41519979,TE/FLEX,3500,BUF@DEN 01/17/2026 04:30PM ET,DEN,6.42
+,,,,,,,,,,,,,,WR,Cooper Kupp (41519859),Cooper Kupp,41519859,WR/FLEX,3500,SF@SEA 01/17/2026 08:00PM ET,SEA,7.39
+,,,,,,,,,,,,,,WR,Marvin Mims Jr. (41519865),Marvin Mims Jr.,41519865,WR/FLEX,3400,BUF@DEN 01/17/2026 04:30PM ET,DEN,6.27
+,,,,,,,,,,,,,,TE,Jake Tonges (41519981),Jake Tonges,41519981,TE/FLEX,3400,SF@SEA 01/17/2026 08:00PM ET,SF,5.32
+,,,,,,,,,,,,,,WR,Xavier Hutchinson (41519863),Xavier Hutchinson,41519863,WR/FLEX,3400,HOU@NE 01/18/2026 03:00PM ET,HOU,5.67
+,,,,,,,,,,,,,,DST,Texans  (41520052),Texans ,41520052,DST,3400,HOU@NE 01/18/2026 03:00PM ET,HOU,10.61
+,,,,,,,,,,,,,,TE,Dawson Knox (41519983),Dawson Knox,41519983,TE/FLEX,3300,BUF@DEN 01/17/2026 04:30PM ET,BUF,6.09
+,,,,,,,,,,,,,,WR,DeMario Douglas (41519869),DeMario Douglas,41519869,WR/FLEX,3300,HOU@NE 01/18/2026 03:00PM ET,NE,5.56
+,,,,,,,,,,,,,,WR,Olamide Zaccheaus (41519867),Olamide Zaccheaus,41519867,WR/FLEX,3300,LAR@CHI 01/18/2026 06:30PM ET,CHI,5.45
+,,,,,,,,,,,,,,WR,Curtis Samuel (41519871),Curtis Samuel,41519871,WR/FLEX,3200,BUF@DEN 01/17/2026 04:30PM ET,BUF,3.52
+,,,,,,,,,,,,,,WR,Lil'Jordan Humphrey (41519873),Lil'Jordan Humphrey,41519873,WR/FLEX,3200,BUF@DEN 01/17/2026 04:30PM ET,DEN,3.46
+,,,,,,,,,,,,,,DST,Seahawks  (41520053),Seahawks ,41520053,DST,3200,SF@SEA 01/17/2026 08:00PM ET,SEA,10.53
+,,,,,,,,,,,,,,TE,Tyler Higbee (41519985),Tyler Higbee,41519985,TE/FLEX,3200,LAR@CHI 01/18/2026 06:30PM ET,LAR,7.06
+,,,,,,,,,,,,,,WR,Tyrell Shavers (41519875),Tyrell Shavers,41519875,WR/FLEX,3100,BUF@DEN 01/17/2026 04:30PM ET,BUF,2.66
+,,,,,,,,,,,,,,WR,Konata Mumpfield (41519877),Konata Mumpfield,41519877,WR/FLEX,3100,LAR@CHI 01/18/2026 06:30PM ET,LAR,1.52
+,,,,,,,,,,,,,,WR,Joshua Palmer (41519885),Joshua Palmer,41519885,WR/FLEX,3000,BUF@DEN 01/17/2026 04:30PM ET,BUF,4.36
+,,,,,,,,,,,,,,WR,Gabe Davis (41519887),Gabe Davis,41519887,WR/FLEX,3000,BUF@DEN 01/17/2026 04:30PM ET,BUF,4.9
+,,,,,,,,,,,,,,WR,Kyrese Rowan (41519955),Kyrese Rowan,41519955,WR/FLEX,3000,BUF@DEN 01/17/2026 04:30PM ET,DEN,0
+,,,,,,,,,,,,,,WR,A.T. Perry (41519957),A.T. Perry,41519957,WR/FLEX,3000,BUF@DEN 01/17/2026 04:30PM ET,DEN,0
+,,,,,,,,,,,,,,WR,Michael Bandy (41519959),Michael Bandy,41519959,WR/FLEX,3000,BUF@DEN 01/17/2026 04:30PM ET,DEN,3.5
+,,,,,,,,,,,,,,WR,Elijah Moore (41519961),Elijah Moore,41519961,WR/FLEX,3000,BUF@DEN 01/17/2026 04:30PM ET,DEN,3.18
+,,,,,,,,,,,,,,WR,Stephen Gosnell (41519963),Stephen Gosnell,41519963,WR/FLEX,3000,BUF@DEN 01/17/2026 04:30PM ET,BUF,0
+,,,,,,,,,,,,,,WR,Mecole Hardman Jr. (41519965),Mecole Hardman Jr.,41519965,WR/FLEX,3000,BUF@DEN 01/17/2026 04:30PM ET,BUF,-0.5
+,,,,,,,,,,,,,,WR,Kristian Wilkerson (41541733),Kristian Wilkerson,41541733,WR/FLEX,3000,BUF@DEN 01/17/2026 04:30PM ET,BUF,0
+,,,,,,,,,,,,,,WR,Jake Bobo (41519925),Jake Bobo,41519925,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SEA,0.36
+,,,,,,,,,,,,,,WR,Dareke Young (41519927),Dareke Young,41519927,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SEA,0.76
+,,,,,,,,,,,,,,WR,Tory Horton (41519929),Tory Horton,41519929,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SEA,8.14
+,,,,,,,,,,,,,,WR,Cody White (41519931),Cody White,41519931,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SEA,1.8
+,,,,,,,,,,,,,,WR,Ricky White III (41519933),Ricky White III,41519933,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SEA,0
+,,,,,,,,,,,,,,WR,Montorie Foster Jr. (41519935),Montorie Foster Jr.,41519935,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SEA,0
+,,,,,,,,,,,,,,WR,Courtney Jackson (41519937),Courtney Jackson,41519937,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SEA,0
+,,,,,,,,,,,,,,WR,Skyy Moore (41519939),Skyy Moore,41519939,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SF,0.84
+,,,,,,,,,,,,,,WR,Jordan Watkins (41519941),Jordan Watkins,41519941,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SF,0.92
+,,,,,,,,,,,,,,WR,Jacob Cowing (41519943),Jacob Cowing,41519943,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,WR,Brandon Aiyuk (41519945),Brandon Aiyuk,41519945,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,WR,Trent Taylor (41519947),Trent Taylor,41519947,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,WR,Javon Baker (41519949),Javon Baker,41519949,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,WR,Malik Turner (41519951),Malik Turner,41519951,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,WR,Junior Bergen (41519953),Junior Bergen,41519953,WR/FLEX,3000,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,WR,Efton Chism III (41519879),Efton Chism III,41519879,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,NE,2.17
+,,,,,,,,,,,,,,WR,Mack Hollins (41519905),Mack Hollins,41519905,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,NE,7.76
+,,,,,,,,,,,,,,WR,Jeremiah Webb (41519907),Jeremiah Webb,41519907,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,NE,0
+,,,,,,,,,,,,,,WR,Brandon Smith (41519909),Brandon Smith,41519909,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,NE,0
+,,,,,,,,,,,,,,WR,John Jiles (41519911),John Jiles,41519911,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,NE,0
+,,,,,,,,,,,,,,WR,Justin Watson (41519913),Justin Watson,41519913,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,HOU,1.5
+,,,,,,,,,,,,,,WR,Braxton Berrios (41519915),Braxton Berrios,41519915,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,HOU,2.42
+,,,,,,,,,,,,,,WR,Tank Dell (41519917),Tank Dell,41519917,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,HOU,0
+,,,,,,,,,,,,,,WR,Quintez Cephus (41519919),Quintez Cephus,41519919,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,HOU,0
+,,,,,,,,,,,,,,WR,Jared Wayne (41519921),Jared Wayne,41519921,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,HOU,4
+,,,,,,,,,,,,,,WR,Josh Kelly (41519923),Josh Kelly,41519923,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,HOU,0
+,,,,,,,,,,,,,,WR,Trent Sherfield Sr. (41541737),Trent Sherfield Sr.,41541737,WR/FLEX,3000,HOU@NE 01/18/2026 03:00PM ET,NE,0.42
+,,,,,,,,,,,,,,WR,Jahdae Walker (41519881),Jahdae Walker,41519881,WR/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,CHI,2.97
+,,,,,,,,,,,,,,WR,Tutu Atwell (41519883),Tutu Atwell,41519883,WR/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,LAR,2.84
+,,,,,,,,,,,,,,WR,Xavier Smith (41519889),Xavier Smith,41519889,WR/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,LAR,2.84
+,,,,,,,,,,,,,,WR,Jordan Whittington (41519891),Jordan Whittington,41519891,WR/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,LAR,2.14
+,,,,,,,,,,,,,,WR,Tyler Scott (41519893),Tyler Scott,41519893,WR/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,LAR,0
+,,,,,,,,,,,,,,WR,Brennan Presley (41519895),Brennan Presley,41519895,WR/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,LAR,0
+,,,,,,,,,,,,,,WR,Tru Edwards (41519897),Tru Edwards,41519897,WR/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,LAR,0
+,,,,,,,,,,,,,,WR,Devin Duvernay (41519899),Devin Duvernay,41519899,WR/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,CHI,0.26
+,,,,,,,,,,,,,,WR,JP Richardson (41519901),JP Richardson,41519901,WR/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,CHI,0
+,,,,,,,,,,,,,,WR,Maurice Alexander (41519903),Maurice Alexander,41519903,WR/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,CHI,0
+,,,,,,,,,,,,,,TE,Cole Kmet (41519987),Cole Kmet,41519987,TE/FLEX,3000,LAR@CHI 01/18/2026 06:30PM ET,CHI,4.64
+,,,,,,,,,,,,,,DST,Rams  (41520054),Rams ,41520054,DST,3000,LAR@CHI 01/18/2026 06:30PM ET,LAR,7.89
+,,,,,,,,,,,,,,DST,Broncos  (41520055),Broncos ,41520055,DST,2800,BUF@DEN 01/17/2026 04:30PM ET,DEN,8.41
+,,,,,,,,,,,,,,TE,Terrance Ferguson (41519989),Terrance Ferguson,41519989,TE/FLEX,2700,LAR@CHI 01/18/2026 06:30PM ET,LAR,3.72
+,,,,,,,,,,,,,,DST,Bills  (41520056),Bills ,41520056,DST,2600,BUF@DEN 01/17/2026 04:30PM ET,BUF,6.39
+,,,,,,,,,,,,,,TE,Elijah Arroyo (41519991),Elijah Arroyo,41519991,TE/FLEX,2600,SF@SEA 01/17/2026 08:00PM ET,SEA,2.92
+,,,,,,,,,,,,,,TE,Adam Trautman (41520033),Adam Trautman,41520033,TE/FLEX,2500,BUF@DEN 01/17/2026 04:30PM ET,DEN,2.68
+,,,,,,,,,,,,,,TE,Nate Adkins (41520035),Nate Adkins,41520035,TE/FLEX,2500,BUF@DEN 01/17/2026 04:30PM ET,DEN,1.87
+,,,,,,,,,,,,,,TE,Lucas Krull (41520037),Lucas Krull,41520037,TE/FLEX,2500,BUF@DEN 01/17/2026 04:30PM ET,DEN,1.17
+,,,,,,,,,,,,,,TE,Marcedes Lewis (41520039),Marcedes Lewis,41520039,TE/FLEX,2500,BUF@DEN 01/17/2026 04:30PM ET,DEN,0
+,,,,,,,,,,,,,,TE,Caleb Lohner (41520041),Caleb Lohner,41520041,TE/FLEX,2500,BUF@DEN 01/17/2026 04:30PM ET,DEN,0
+,,,,,,,,,,,,,,TE,Mitchell Fraboni (41520043),Mitchell Fraboni,41520043,TE/FLEX,2500,BUF@DEN 01/17/2026 04:30PM ET,DEN,0
+,,,,,,,,,,,,,,TE,Patrick Murtagh (41520045),Patrick Murtagh,41520045,TE/FLEX,2500,BUF@DEN 01/17/2026 04:30PM ET,DEN,0
+,,,,,,,,,,,,,,TE,Jackson Hawes (41520047),Jackson Hawes,41520047,TE/FLEX,2500,BUF@DEN 01/17/2026 04:30PM ET,BUF,2.93
+,,,,,,,,,,,,,,TE,Keleki Latu (41520049),Keleki Latu,41520049,TE/FLEX,2500,BUF@DEN 01/17/2026 04:30PM ET,BUF,1.5
+,,,,,,,,,,,,,,TE,George Kittle (41519993),George Kittle,41519993,TE/FLEX,2500,SF@SEA 01/17/2026 08:00PM ET,SF,13.84
+,,,,,,,,,,,,,,TE,Eric Saubert (41520025),Eric Saubert,41520025,TE/FLEX,2500,SF@SEA 01/17/2026 08:00PM ET,SEA,0.83
+,,,,,,,,,,,,,,TE,Nick Kallerup (41520027),Nick Kallerup,41520027,TE/FLEX,2500,SF@SEA 01/17/2026 08:00PM ET,SEA,0
+,,,,,,,,,,,,,,TE,Luke Farrell (41520029),Luke Farrell,41520029,TE/FLEX,2500,SF@SEA 01/17/2026 08:00PM ET,SF,1.69
+,,,,,,,,,,,,,,TE,Brayden Willis (41520031),Brayden Willis,41520031,TE/FLEX,2500,SF@SEA 01/17/2026 08:00PM ET,SF,0
+,,,,,,,,,,,,,,TE,Austin Hooper (41520009),Austin Hooper,41520009,TE/FLEX,2500,HOU@NE 01/18/2026 03:00PM ET,NE,3.49
+,,,,,,,,,,,,,,TE,CJ Dippre (41520011),CJ Dippre,41520011,TE/FLEX,2500,HOU@NE 01/18/2026 03:00PM ET,NE,0
+,,,,,,,,,,,,,,TE,Marshall Lang (41520013),Marshall Lang,41520013,TE/FLEX,2500,HOU@NE 01/18/2026 03:00PM ET,NE,0
+,,,,,,,,,,,,,,TE,Cade Stover (41520015),Cade Stover,41520015,TE/FLEX,2500,HOU@NE 01/18/2026 03:00PM ET,HOU,2.36
+,,,,,,,,,,,,,,TE,Harrison Bryant (41520017),Harrison Bryant,41520017,TE/FLEX,2500,HOU@NE 01/18/2026 03:00PM ET,HOU,0.21
+,,,,,,,,,,,,,,TE,Brevin Jordan (41520019),Brevin Jordan,41520019,TE/FLEX,2500,HOU@NE 01/18/2026 03:00PM ET,HOU,0
+,,,,,,,,,,,,,,TE,Luke Lachey (41520021),Luke Lachey,41520021,TE/FLEX,2500,HOU@NE 01/18/2026 03:00PM ET,HOU,0
+,,,,,,,,,,,,,,TE,Jakob Johnson (41520023),Jakob Johnson,41520023,TE/FLEX,2500,HOU@NE 01/18/2026 03:00PM ET,HOU,0
+,,,,,,,,,,,,,,TE,Davis Allen (41519995),Davis Allen,41519995,TE/FLEX,2500,LAR@CHI 01/18/2026 06:30PM ET,LAR,3.49
+,,,,,,,,,,,,,,TE,Nick Vannett (41519997),Nick Vannett,41519997,TE/FLEX,2500,LAR@CHI 01/18/2026 06:30PM ET,LAR,0
+,,,,,,,,,,,,,,TE,Mark Redman (41519999),Mark Redman,41519999,TE/FLEX,2500,LAR@CHI 01/18/2026 06:30PM ET,LAR,0
+,,,,,,,,,,,,,,TE,Durham Smythe (41520001),Durham Smythe,41520001,TE/FLEX,2500,LAR@CHI 01/18/2026 06:30PM ET,CHI,0.45
+,,,,,,,,,,,,,,TE,Thomas Gordon (41520003),Thomas Gordon,41520003,TE/FLEX,2500,LAR@CHI 01/18/2026 06:30PM ET,CHI,0
+,,,,,,,,,,,,,,TE,Nikola Kalinic (41520005),Nikola Kalinic,41520005,TE/FLEX,2500,LAR@CHI 01/18/2026 06:30PM ET,CHI,0
+,,,,,,,,,,,,,,TE,Stephen Carlson (41520007),Stephen Carlson,41520007,TE/FLEX,2500,LAR@CHI 01/18/2026 06:30PM ET,CHI,0
+,,,,,,,,,,,,,,DST,Bears  (41520057),Bears ,41520057,DST,2400,LAR@CHI 01/18/2026 06:30PM ET,CHI,6.44
+,,,,,,,,,,,,,,DST,49ers  (41520058),49ers ,41520058,DST,2200,SF@SEA 01/17/2026 08:00PM ET,SF,4.44

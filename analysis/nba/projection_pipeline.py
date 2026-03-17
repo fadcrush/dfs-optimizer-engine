@@ -1,4 +1,15 @@
 """
+DEPRECATED — legacy NBA projection pipeline. Not used by the production orchestrator.
+Production path: analysis.core.orchestrator.run_dfs_pipeline()
+
+This file is retained for reference only and will be removed in a future cleanup pass.
+Do NOT add new logic here.
+"""
+# ---------------------------------------------------------------------------
+# Original module content preserved below for reference only.
+# ---------------------------------------------------------------------------
+
+"""
 Complete NBA Projection Pipeline
 End-to-end projection generation system
 Clean version - No unicode characters for Windows compatibility
@@ -15,6 +26,7 @@ import os
 
 from .data_aggregator import NBADataAggregator
 from .projection_engine import NBAProjectionEngine
+from analysis.shared.scoring import score_nba_row
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +167,7 @@ class ProjectionPipeline:
         try:
             logger.info("  -> Fetching season stats...")
             season = datetime.now().year
-            data['season_stats'] = self.aggregator.sportsdata_client.get_player_stats_season(str(season))
+            data['season_stats'] = self.aggregator.nba_client.get_player_stats_season(str(season))
             logger.info(f"    OK Got stats for {len(data['season_stats'])} players")
         except Exception as e:
             logger.warning(f"    X Season stats failed: {e}")
@@ -166,7 +178,7 @@ class ProjectionPipeline:
             recent = []
             for i in range(10):
                 past_date = (datetime.strptime(target_date, '%Y-%m-%d') - timedelta(days=i+1)).strftime('%Y-%m-%d')
-                games = self.aggregator.sportsdata_client.get_player_game_stats(past_date)
+                games = self.aggregator.nba_client.get_player_game_stats(past_date)
                 if games:
                     recent.extend(games)
             data['recent_games'] = recent
@@ -177,7 +189,7 @@ class ProjectionPipeline:
         
         try:
             logger.info("  -> Fetching injury report...")
-            data['injuries'] = self.aggregator.sportsdata_client.get_injuries()
+            data['injuries'] = self.aggregator.nba_client.get_injuries()
             logger.info(f"    OK Got {len(data['injuries'])} injury reports")
         except Exception as e:
             logger.warning(f"    X Injury data failed: {e}")
@@ -232,13 +244,16 @@ class ProjectionPipeline:
                 tpg = player.get('Turnovers', 0) / games_played
                 mpg = player.get('Minutes', 0) / games_played
                 
-                fpts = (
-                    ppg * 1.0 +
-                    rpg * 1.2 +
-                    apg * 1.5 +
-                    spg * 3.0 +
-                    bpg * 3.0 +
-                    tpg * -1.0
+                fpts = score_nba_row(
+                    "FD",
+                    {
+                        "PTS": ppg,
+                        "TRB": rpg,
+                        "AST": apg,
+                        "STL": spg,
+                        "BLK": bpg,
+                        "TOV": tpg,
+                    },
                 )
                 
                 if mpg < 5:

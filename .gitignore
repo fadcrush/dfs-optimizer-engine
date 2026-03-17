@@ -4,26 +4,38 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.venv/
 venv/
 env/
 *.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
 
-# Django
+# Logs
 *.log
 db.sqlite3
-media/
-staticfiles/
 
-# Secrets - IMPORTANT!
-config/.env
-*.env
+# Secrets
+.env
+.env.*
+!.env.example
 .env.local
 
-# Data files (large)
+# Data files (large, runtime-generated)
+*.duckdb
+*.duckdb.wal
+data/
 exports/
 uploads/
-data/
 logs/
+backend/src/outputs/
+
+# Node / Next.js
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
 
 # IDE
 .vscode/
@@ -34,7 +46,12 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Temporary files
-*.csv
-*.json
+# Cleanup script archives (not source)
+archive_staging/
+
+# Generated output files
+outputs/
+
+# Local tool settings
+.claude/
 raw/

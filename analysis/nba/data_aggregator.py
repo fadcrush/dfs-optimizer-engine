@@ -11,10 +11,10 @@ from typing import Optional, Dict, List
 
 from analysis.shared.api_clients import (
     TheOddsAPIClient,
-    SportsDataAPIClient,
+    NBAFreeDataClient,
     BallDontLieAPIClient
 )
-from .projection_engine import NBAProjectionEngine
+from analysis.core.projection_engine import CanonicalNBAProjectionEngine
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +27,11 @@ class NBADataAggregator:
     def __init__(self):
         # Initialize API clients
         self.odds_client = TheOddsAPIClient(os.getenv('THEODDS_API_KEY', ''))
-        self.sportsdata_client = SportsDataAPIClient(os.getenv('SPORTSDATA_API_KEY', ''))
+        self.nba_client = NBAFreeDataClient()  # free, no API key — uses nba_api / stats.nba.com
         self.balldontlie_client = BallDontLieAPIClient()
         
         # Initialize projection engine
-        self.projection_engine = NBAProjectionEngine()
+        self.projection_engine = CanonicalNBAProjectionEngine()
     
     def generate_daily_projections(self, target_date: Optional[str] = None) -> pd.DataFrame:
         """
@@ -56,7 +56,7 @@ class NBADataAggregator:
         # Step 2: Get player season stats
         logger.info("Fetching season stats...")
         season = datetime.now().year
-        season_stats = self.sportsdata_client.get_player_stats_season(str(season))
+        season_stats = self.nba_client.get_player_stats_season(str(season))
         season_df = pd.DataFrame(season_stats)
         
         # Step 3: Get recent game stats (last 15 days)
@@ -64,19 +64,19 @@ class NBADataAggregator:
         recent_games = []
         for i in range(15):
             past_date = (datetime.strptime(target_date, '%Y-%m-%d') - timedelta(days=i+1)).strftime('%Y-%m-%d')
-            games = self.sportsdata_client.get_player_game_stats(past_date)
+            games = self.nba_client.get_player_game_stats(past_date)
             recent_games.extend(games)
         
         recent_df = pd.DataFrame(recent_games)
         
         # Step 4: Get injuries
         logger.info("Fetching injury report...")
-        injuries = self.sportsdata_client.get_injuries()
+        injuries = self.nba_client.get_injuries()
         injuries_df = pd.DataFrame(injuries)
         
         # Step 5: Get starting lineups (if available)
         logger.info("Fetching starting lineups...")
-        lineups = self.sportsdata_client.get_starting_lineups(target_date)
+        lineups = self.nba_client.get_starting_lineups(target_date)
         
         # Step 6: Create game info DataFrame
         game_info_df = self._create_game_info(vegas_df, season_df)

@@ -1,6 +1,11 @@
 # Core FastAPI
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
+email-validator>=2.1.0
+python-multipart>=0.0.7
+
+# Optimisation
+pulp>=2.7.0
 
 # Environment & Config
 python-dotenv==1.0.0
@@ -15,11 +20,27 @@ alembic==1.13.1
 # Authentication & Security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+slowapi>=0.1.9
 
 # Data Processing (you already have these, but good to list)
 pandas
 numpy
 duckdb
+requests
+
+# ML — ownership model training
+scikit-learn>=1.3.0
+joblib>=1.3.0
+
+# NBA game-log ingestion (stats.nba.com, free, no API key)
+nba_api>=1.4.0
+
+# NBA Injury Report PDF Scraper
+pdfplumber>=0.11      # parse NBA official injury PDFs
+beautifulsoup4>=4.12  # scrape injury report page for PDF links
+
+# Background scheduling
+apscheduler>=3.10,<4    # Cron-style scheduler for daily pipeline jobs
 
 # Future additions
 # stripe  # For payments (Phase 1, Month 2)

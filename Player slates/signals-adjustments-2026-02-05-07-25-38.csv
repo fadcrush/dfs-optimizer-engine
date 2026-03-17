@@ -1,0 +1,10 @@
+player,projection_multiplier,ownership_multiplier,tags,event_count
+Lebron James,1.0200,1.0320,starting_lineup,1
+Luka Doncic,1.0200,1.0320,starting_lineup,1
+Jayson Tatum,1.0196,1.0314,starting_lineup,1
+Stephen Curry,1.0094,1.0150,starting_lineup,1
+Jimmy Butler,0.9929,0.9886,starting_lineup,1
+Ja Morant,0.9881,0.9810,injury,1
+Anthony Davis,0.9469,0.9150,injury,1
+Joel Embiid,0.9375,0.9000,injury,1
+Kawhi Leonard,0.7500,0.6000,injury,1
