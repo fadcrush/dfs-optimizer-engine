@@ -147,6 +147,11 @@ _MIGRATIONS: dict[str, list[tuple[int, str, str | _MigrationFn]]] = {
             );
             """,
         ),
+        (
+            2,
+            "projection_cache: add row_count column",
+            "ALTER TABLE projection_cache ADD COLUMN IF NOT EXISTS row_count INTEGER DEFAULT 0;",
+        ),
     ],
 
     # ------------------------------------------------------------------ #
