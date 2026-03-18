@@ -120,3 +120,18 @@ async def me(current_user=Depends(get_current_user)):
     if hasattr(current_user, "to_dict"):
         return current_user.to_dict()
     return current_user
+
+
+@router.delete("/me")
+async def delete_account(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """GDPR/CCPA: Permanently delete the authenticated user's account and all associated data."""
+    user_id = current_user.get("id") if isinstance(current_user, dict) else current_user.id
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    db.delete(user)
+    db.commit()
+    return {"message": "Account and all associated data have been permanently deleted."}

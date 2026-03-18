@@ -93,7 +93,7 @@ def test_api_upload_generate_download_flow(tmp_path: Path, monkeypatch, isolated
     app = FastAPI()
     app.include_router(projections_router.router)
     from services.auth import get_current_user
-    app.dependency_overrides[get_current_user] = lambda: {"id": "user-1"}
+    app.dependency_overrides[get_current_user] = lambda: {"id": "user-1", "tier": "pro"}
     client = TestClient(app)
 
     async def fake_generate_projections(_: str, user_id: str, site: str = "FD", sport: str = "NBA"):

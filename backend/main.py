@@ -3,6 +3,7 @@ DFS Edge Pro - Backend API
 The path to $150-300M starts here!
 """
 
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -21,6 +22,22 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
+log = logging.getLogger("dfs_edge")
+logging.basicConfig(
+    level=logging.INFO,
+    format='{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}',
+    stream=sys.stdout,
+)
+
+_sentry_dsn = os.getenv("SENTRY_DSN", "")
+if _sentry_dsn:
+    try:
+        import sentry_sdk  # type: ignore[import]
+        sentry_sdk.init(dsn=_sentry_dsn, traces_sample_rate=0.1)
+        log.info("Sentry error tracking enabled")
+    except ImportError:
+        log.warning("SENTRY_DSN is set but sentry-sdk is not installed; run: pip install sentry-sdk[fastapi]")
+
 # Import database and routes
 from database.db import init_db, test_connection
 from routers import auth, projections, optimizer, slates, analytics, games, contests, events, injuries
@@ -28,26 +45,20 @@ from routers.pipeline import router as pipeline_router
 
 def _run_startup_tasks() -> None:
     """Initialize external services and local storage on API startup."""
-    print("\n" + "="*60)
-    print("🚀 DFS EDGE PRO - STARTING BACKEND API")
-    print("="*60)
-    print("📊 Vision: $150-300M exit in 5 years")
-    print("🎯 Phase 1: Validate (1,000 users, $29K MRR)")
-    print("💰 Mission: 10% to JSMS Academy")
-    print("="*60)
+    log.info("DFS Edge Pro API starting up")
 
     if test_connection():
         init_db()
-        print("✅ Authentication system ready!")
+        log.info("Authentication system ready")
     else:
-        print("⚠️  Database connection failed - check your .env file")
+        log.warning("Database connection failed — check your .env file")
 
     try:
         from workers.schedulers.daily import start_scheduler
         start_scheduler()
-        print("✅ Background job scheduler started!")
+        log.info("Background job scheduler started")
     except Exception as exc:
-        print(f"⚠️  Scheduler startup skipped: {exc}")
+        log.warning("Scheduler startup skipped: %s", exc)
 
     try:
         _root = Path(__file__).resolve().parent.parent
@@ -61,12 +72,10 @@ def _run_startup_tasks() -> None:
             try:
                 get_conn(_db_path, db_key=_db_key)
             except Exception as _exc:
-                print(f"⚠️  Migration skipped for {_db_key}: {_exc}")
-        print("✅ DuckDB schemas migrated!")
+                log.warning("Migration skipped for %s: %s", _db_key, _exc)
+        log.info("DuckDB schemas migrated")
     except Exception as exc:
-        print(f"⚠️  DuckDB migrations skipped: {exc}")
-
-    print("="*60 + "\n")
+        log.warning("DuckDB migrations skipped: %s", exc)
 
 
 def _run_shutdown_tasks() -> None:
@@ -121,8 +130,17 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 # Include routers
 app.include_router(auth.router)

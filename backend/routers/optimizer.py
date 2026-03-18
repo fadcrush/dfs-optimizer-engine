@@ -4,6 +4,8 @@ Optimizer Routes - Generate lineups and optional Monte Carlo simulations
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 import pandas as pd
 
@@ -13,7 +15,7 @@ from analysis.core.contest_sim import ContestConfig
 from analysis.core.exposure_optimizer import ExposureConfig
 from analysis.nba.optimizer import assign_lineup_slots
 from analysis.nba.pool_filter import PoolFilterConfig
-from services.auth import get_current_user
+from services.auth import get_current_user, require_plan
 from services.file_service import get_file_path, save_lineup_file, save_slate_file
 from services.late_swap_service import (
     resolve_weights,
@@ -148,7 +150,7 @@ async def run_optimizer(
     # Player-pool overrides from the UI player-pool table
     projection_overrides: str = "",  # JSON: {"LeBron James": 42.5, ...} — user-adjusted projections
     locked_players: str = "",        # comma-separated: force into every lineup
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_plan("pro")),
 ):
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a CSV")
@@ -228,7 +230,8 @@ async def run_optimizer(
     if chalk_threshold > 0 and apply_filter:
         pool_filter_cfg = PoolFilterConfig(chalk_own_threshold=chalk_threshold)
 
-    result = run_dfs_pipeline(
+    result = await asyncio.to_thread(
+        run_dfs_pipeline,
         slate_file_path=file_info["file_path"],
         context=context,
         n_lineups=n_lineups,

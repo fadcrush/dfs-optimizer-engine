@@ -11,7 +11,7 @@ import io
 
 from database.db import get_db, DATABASE_URL
 from models.user import User
-from services.auth import get_current_user
+from services.auth import get_current_user, require_plan
 from services.file_service import get_file_path, save_projection_file, save_slate_file
 from services.projection_service import generate_projections, projections_to_csv
 
@@ -73,7 +73,7 @@ async def run(
     file: UploadFile = File(...),
     site: str = "DK",
     sport: str = "NBA",
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_plan("pro")),
     db: Optional[Session] = Depends(optional_db),
 ):
     """Alias for generate-from-upload — single-step upload + project."""
@@ -85,7 +85,7 @@ async def generate_from_upload(
     file: UploadFile = File(...),
     site: str = "FD",
     sport: str = "NBA",
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_plan("pro")),
     db: Optional[Session] = Depends(optional_db),
 ):
     """One-step: Upload slate AND generate projections."""

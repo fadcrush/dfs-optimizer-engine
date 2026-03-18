@@ -192,13 +192,50 @@ def job_ingest_game_logs() -> None:
                         result.returncode, result.stderr.strip()[-500:])
     except Exception as exc:
         log.error("[scheduler] job_ingest_game_logs failed: %s", exc)
+def job_backup_duckdb() -> None:
+    """Copy every *.duckdb in data/ to data/backups/ with a UTC timestamp suffix.
+
+    Runs at 04:00 ET nightly (after game-log ingest at 03:00 is complete).
+    Keeps backups for 7 days; prunes older files automatically.
+    """
+    import shutil
+    from datetime import datetime as _dt
+
+    log.info("[scheduler] job_backup_duckdb starting")
+    data_dir = _ROOT / "data"
+    backup_dir = data_dir / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = _dt.utcnow().strftime("%Y%m%d_%H%M")
+    cutoff = _dt.utcnow().timestamp() - 7 * 86400
+
+    backed_up = 0
+    for db_file in data_dir.glob("*.duckdb"):
+        dest = backup_dir / f"{db_file.stem}_{stamp}.duckdb"
+        try:
+            shutil.copy2(db_file, dest)
+            backed_up += 1
+        except Exception as exc:
+            log.warning("[scheduler] Backup failed for %s: %s", db_file.name, exc)
+
+    pruned = 0
+    for old in backup_dir.glob("*.duckdb"):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+                pruned += 1
+        except Exception:
+            pass
+
+    log.info(
+        "[scheduler] Backup complete — %d files backed up, %d old files pruned",
+        backed_up, pruned,
+    )
 
 def job_retrain_ownership_model() -> None:
     """
     Retrain the GBR ownership model from accumulated ownership_history data.
     Runs weekly on Sunday at 01:00 ET.  Requires ≥300 training rows; skips
-    silently if the threshold isn’t met yet.
-    """
+    silently if the threshold isn’t met yet.    """    """
     log.info("[scheduler] job_retrain_ownership_model starting")
     try:
         from analysis.nba.ownership_v2 import train_ownership_model
@@ -289,6 +326,15 @@ def start_scheduler(timezone: str = "America/New_York") -> None:
         id="ingest_game_logs",
         replace_existing=True,
         name="Ingest NBA Game Logs",
+    )
+
+    # Nightly DuckDB backup — 4:00 AM ET (after game-log ingest)
+    _scheduler.add_job(
+        job_backup_duckdb,
+        CronTrigger(hour=4, minute=0),
+        id="backup_duckdb",
+        replace_existing=True,
+        name="Backup DuckDB Files",
     )
 
     # Weekly ownership model retrain — Sunday 1:00 AM ET

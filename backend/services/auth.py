@@ -164,3 +164,29 @@ def get_current_user_optional(token: str = Depends(oauth2_scheme)):
         return get_current_user(token)
     except HTTPException:
         return None
+
+
+_TIER_RANK: dict[str, int] = {"free": 0, "pro": 1, "elite": 2, "admin": 99}
+
+
+def require_plan(min_tier: str = "pro"):
+    """FastAPI dependency — requires the authenticated user to have at least *min_tier*.
+
+    Usage::
+        @router.post("/run")
+        async def run(current_user=Depends(require_plan("pro"))):
+            ...
+    """
+    def _check(current_user=Depends(get_current_user)):
+        tier = (
+            current_user.get("tier", "free")
+            if isinstance(current_user, dict)
+            else getattr(current_user, "tier", "free")
+        )
+        if _TIER_RANK.get(tier, 0) < _TIER_RANK.get(min_tier, 1):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This feature requires a {min_tier} subscription.",
+            )
+        return current_user
+    return _check

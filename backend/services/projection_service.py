@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from datetime import date
@@ -37,7 +38,8 @@ async def generate_projections(
     """
     try:
         context = ProjectionContext(sport=sport.upper(), site=site.upper())
-        pipeline_result = run_dfs_pipeline(
+        pipeline_result = await asyncio.to_thread(
+            run_dfs_pipeline,
             slate_file_path=slate_file_path,
             context=context,
             n_lineups=0,
