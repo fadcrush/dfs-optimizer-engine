@@ -10,8 +10,10 @@ import logging
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Depends
 from pydantic import BaseModel
+
+from services.auth import get_current_user
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/contests", tags=["Contests"])
@@ -23,7 +25,7 @@ if str(_scripts) not in sys.path:
 
 
 @router.post("/import")
-async def import_contest(file: UploadFile = File(...)):
+async def import_contest(file: UploadFile = File(...), current_user=Depends(get_current_user)):
     """
     Upload a FanDuel or DraftKings contest CSV to import results.
     Auto-detects site from file headers.

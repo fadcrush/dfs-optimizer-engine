@@ -42,6 +42,9 @@ beautifulsoup4>=4.12  # scrape injury report page for PDF links
 # Background scheduling
 apscheduler>=3.10,<4    # Cron-style scheduler for daily pipeline jobs
 
+# Payments
+stripe>=7.0.0
+
 # Observability
 sentry-sdk[fastapi]>=1.40.0
 

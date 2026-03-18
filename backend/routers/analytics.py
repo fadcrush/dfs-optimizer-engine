@@ -34,6 +34,14 @@ from services.analytics_service import (
     log_contest_result,
     reconcile_projections,
 )
+from services.auth import get_current_user
+
+
+def _uid(user) -> str:
+    """Extract user id string from whatever get_current_user returns."""
+    if isinstance(user, dict):
+        return str(user.get("id", ""))
+    return str(getattr(user, "id", ""))
 
 log = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
@@ -85,6 +93,7 @@ class ImportOwnershipRequest(BaseModel):
 async def roi_summary(
     days: Optional[int] = Query(default=30, ge=1, le=365, description="Lookback window in days"),
     site: Optional[str] = Query(default=None, description="Filter by site: DK or FD"),
+    current_user=Depends(get_current_user),
 ):
     """
     Return ROI and profit metrics for contest entries over the requested window.
@@ -92,7 +101,7 @@ async def roi_summary(
     ``days=0`` or omitting returns all-time stats.
     """
     period = days if days and days > 0 else None
-    data = get_roi_summary(period_days=period, site=site)
+    data = get_roi_summary(period_days=period, site=site, user_id=_uid(current_user))
     if "error" in data:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=data["error"])
     return data
@@ -102,6 +111,7 @@ async def roi_summary(
 async def projection_accuracy(
     days: int = Query(default=30, ge=1, le=365, description="Lookback window in days"),
     site: str = Query(default="DK", description="'DK' or 'FD'"),
+    current_user=Depends(get_current_user),
 ):
     """
     Return projection accuracy metrics (MAE, RMSE, bias) for reconciled projections.
@@ -109,14 +119,14 @@ async def projection_accuracy(
     Projections are reconciled nightly when game-log actuals arrive.
     ``by_day`` in the response gives a day-by-day breakdown.
     """
-    data = get_accuracy_report(period_days=days, site=site.upper())
+    data = get_accuracy_report(period_days=days, site=site.upper(), user_id=_uid(current_user))
     if "error" in data:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=data["error"])
     return data
 
 
 @router.post("/contest", status_code=status.HTTP_201_CREATED)
-async def log_contest(body: ContestResultRequest):
+async def log_contest(body: ContestResultRequest, current_user=Depends(get_current_user)):
     """
     Log a single contest entry result.
 
@@ -134,6 +144,7 @@ async def log_contest(body: ContestResultRequest):
         lineup_proj=body.lineup_proj,
         lineup_actual=body.lineup_actual,
         notes=body.notes,
+        user_id=_uid(current_user),
     )
     if not ok:
         raise HTTPException(
@@ -144,7 +155,7 @@ async def log_contest(body: ContestResultRequest):
 
 
 @router.post("/reconcile")
-async def reconcile(body: ReconcileRequest):
+async def reconcile(body: ReconcileRequest, current_user=Depends(get_current_user)):
     """
     Match projection_log rows against game-log actuals for the given slate date.
 

@@ -87,6 +87,14 @@ _MIGRATIONS: dict[str, list[tuple[int, str, str | _MigrationFn]]] = {
             );
             """,
         ),
+        (
+            4,
+            "add user_id to player_projections and lineup_results",
+            """
+            ALTER TABLE player_projections ADD COLUMN IF NOT EXISTS user_id VARCHAR DEFAULT '';
+            ALTER TABLE lineup_results ADD COLUMN IF NOT EXISTS user_id VARCHAR DEFAULT '';
+            """,
+        ),
     ],
 
     # ------------------------------------------------------------------ #

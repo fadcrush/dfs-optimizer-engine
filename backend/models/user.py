@@ -29,6 +29,10 @@ class User(Base):
     tier = Column(String, default="free")  # free, pro, elite, enterprise
     subscription_status = Column(String, default="active")  # active, cancelled, expired
     subscription_expires_at = Column(DateTime, nullable=True)
+
+    # Stripe billing
+    stripe_customer_id = Column(String, nullable=True, unique=True)
+    stripe_subscription_id = Column(String, nullable=True)
     
     # Tracking
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -51,6 +55,8 @@ class User(Base):
             "tier": self.tier,
             "subscription_status": self.subscription_status,
             "email_verified": self.email_verified,
+            "stripe_customer_id": self.stripe_customer_id,
+            "stripe_subscription_id": self.stripe_subscription_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
             "lineups_generated": self.lineups_generated,

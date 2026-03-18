@@ -40,7 +40,7 @@ if _sentry_dsn:
 
 # Import database and routes
 from database.db import init_db, test_connection
-from routers import auth, projections, optimizer, slates, analytics, games, contests, events, injuries
+from routers import auth, projections, optimizer, slates, analytics, games, contests, events, injuries, billing
 from routers.pipeline import router as pipeline_router
 
 def _run_startup_tasks() -> None:
@@ -152,6 +152,7 @@ app.include_router(games.router)
 app.include_router(contests.router)
 app.include_router(events.router)
 app.include_router(injuries.router)
+app.include_router(billing.router)
 app.include_router(pipeline_router)
 
 @app.get("/")

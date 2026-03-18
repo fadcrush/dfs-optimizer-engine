@@ -69,15 +69,26 @@ def get_db_context():
 def init_db():
     """Initialize database — create all tables."""
     if engine is None:
-        print("[db] Skipping init_db — DATABASE_URL not set.")
+        log.warning("[db] Skipping init_db — DATABASE_URL not set.")
         return False
     from models.user import Base
-    print("[db] Initialising database...")
+    log.info("[db] Initialising database...")
     try:
         Base.metadata.create_all(bind=engine)
+        # Idempotent column additions for existing databases (e.g. Stripe fields
+        # added after the initial table was created).
+        _ddls = [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR",
+        ]
         with engine.connect() as conn:
+            for ddl in _ddls:
+                try:
+                    conn.execute(text(ddl))
+                except Exception:
+                    pass  # dialect may not support IF NOT EXISTS (SQLite < 3.37)
             conn.execute(text("SELECT 1"))
-        print("[db] Database tables ready.")
+        log.info("[db] Database tables ready.")
         return True
     except Exception as e:
         print(f"[db] Database init failed: {e}")

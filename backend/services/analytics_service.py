@@ -71,6 +71,7 @@ def init_analytics_tables() -> None:
                 lineup_proj   DOUBLE,
                 lineup_actual DOUBLE,
                 notes         VARCHAR DEFAULT '',
+                user_id       VARCHAR DEFAULT '',
                 created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -88,6 +89,7 @@ def init_analytics_tables() -> None:
                 ownership     DOUBLE,
                 actual_pts    DOUBLE,
                 reconciled    BOOLEAN DEFAULT FALSE,
+                user_id       VARCHAR DEFAULT '',
                 created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -105,6 +107,7 @@ def init_analytics_tables() -> None:
                 proj           DOUBLE,
                 contest_type   VARCHAR DEFAULT 'gpp',
                 slate_id       VARCHAR DEFAULT '',
+                user_id        VARCHAR DEFAULT '',
                 created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (game_date, site, player_name, slate_id)
             )
@@ -112,6 +115,12 @@ def init_analytics_tables() -> None:
         con.execute("CREATE SEQUENCE IF NOT EXISTS contest_results_id_seq START 1")
         con.execute("CREATE SEQUENCE IF NOT EXISTS projection_log_id_seq START 1")
         con.execute("CREATE SEQUENCE IF NOT EXISTS ownership_actuals_id_seq START 1")
+        # Idempotent: backfill user_id on tables created before this migration
+        for _tbl in ("contest_results", "projection_log", "ownership_actuals"):
+            try:
+                con.execute(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS user_id VARCHAR DEFAULT ''")
+            except Exception:
+                pass
     except Exception as exc:
         log.warning("analytics table init failed: %s", exc)
 
@@ -131,6 +140,7 @@ def log_contest_result(
     lineup_proj: Optional[float] = None,
     lineup_actual: Optional[float] = None,
     notes: str = "",
+    user_id: str = "",
 ) -> bool:
     """Write a single contest result row. Returns True on success."""
     try:
@@ -138,14 +148,14 @@ def log_contest_result(
         con.execute("""
             INSERT INTO contest_results
                 (id, contest_date, contest_type, site, entry_fee, payout,
-                 final_rank, total_entries, lineup_proj, lineup_actual, notes)
+                 final_rank, total_entries, lineup_proj, lineup_actual, notes, user_id)
             VALUES
-                (nextval('contest_results_id_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (nextval('contest_results_id_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, [
             contest_date, contest_type.lower(), site.upper(),
             float(entry_fee), float(payout),
             final_rank, total_entries,
-            lineup_proj, lineup_actual, notes,
+            lineup_proj, lineup_actual, notes, user_id,
         ])
         return True
     except Exception as exc:
@@ -153,7 +163,7 @@ def log_contest_result(
         return False
 
 
-def get_roi_summary(period_days: Optional[int] = None, site: Optional[str] = None) -> dict[str, Any]:
+def get_roi_summary(period_days: Optional[int] = None, site: Optional[str] = None, user_id: str = "") -> dict[str, Any]:
     """
     Calculate ROI metrics from stored contest results.
 
@@ -167,6 +177,9 @@ def get_roi_summary(period_days: Optional[int] = None, site: Optional[str] = Non
         conditions = ["1=1"]
         params: list[Any] = []
 
+        if user_id:
+            conditions.append("user_id = ?")
+            params.append(user_id)
         if period_days:
             cutoff = (datetime.utcnow() - timedelta(days=period_days)).date()
             conditions.append("contest_date >= ?")
@@ -234,7 +247,7 @@ def get_roi_summary(period_days: Optional[int] = None, site: Optional[str] = Non
 # Projection accuracy
 # ---------------------------------------------------------------------------
 
-def log_projections(projections: list[dict], slate_date: date, site: str) -> int:
+def log_projections(projections: list[dict], slate_date: date, site: str, user_id: str = "") -> int:
     """
     Bulk-insert projection rows for later accuracy reconciliation.
 
@@ -256,6 +269,7 @@ def log_projections(projections: list[dict], slate_date: date, site: str) -> int
                 float(p.get("floor", p.get("Floor", 0.0))),
                 float(p.get("ceiling", p.get("Ceiling", 0.0))),
                 float(p.get("ownership", p.get("Own", 0.0))),
+                user_id,
             )
             for p in projections
         ]
@@ -263,9 +277,9 @@ def log_projections(projections: list[dict], slate_date: date, site: str) -> int
         con.executemany("""
             INSERT INTO projection_log
                 (id, slate_date, site, player_id, player_name, salary,
-                 proj, floor, ceiling, ownership)
+                 proj, floor, ceiling, ownership, user_id)
             VALUES
-                (nextval('projection_log_id_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (nextval('projection_log_id_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows)
         return len(rows)
     except Exception as exc:
@@ -343,6 +357,7 @@ def reconcile_projections(slate_date: date, site: str) -> dict[str, Any]:
 def get_accuracy_report(
     period_days: Optional[int] = 30,
     site: str = "DK",
+    user_id: str = "",
 ) -> dict[str, Any]:
     """
     Pull reconciled projection accuracy stats for the given window.
@@ -355,6 +370,9 @@ def get_accuracy_report(
         conditions = ["reconciled = TRUE", "site = ?"]
         params: list[Any] = [site.upper()]
 
+        if user_id:
+            conditions.append("user_id = ?")
+            params.append(user_id)
         if period_days:
             cutoff = (datetime.utcnow() - timedelta(days=period_days)).date()
             conditions.append("slate_date >= ?")
