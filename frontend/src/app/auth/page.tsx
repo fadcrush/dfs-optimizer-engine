@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AUTH_DISABLED, clearAuthSession } from '@/lib/auth'
-import { getCurrentUser, login, signup } from '@/lib/api/auth'
+import { AUTH_DISABLED, clearAuthSession, getAccessToken, getStoredUser } from '@/lib/auth'
+import { getCurrentUser, login, signup, requestPasswordReset } from '@/lib/api/auth'
 
-type Mode = 'login' | 'signup'
+type Mode = 'login' | 'signup' | 'forgot'
 
 const cardCls = 'bg-surface-raised border border-surface-border rounded-2xl shadow-[0_18px_60px_rgba(0,0,0,0.28)]'
 const inputCls = 'w-full rounded-xl border border-surface-border bg-surface-overlay px-3.5 py-3 text-sm text-text-primary outline-none focus:border-primary'
@@ -20,6 +21,8 @@ export default function AuthPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [nextPath, setNextPath] = useState('/')
+  const [alreadySignedIn, setAlreadySignedIn] = useState(false)
+  const [signedInAs, setSignedInAs] = useState<string | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -40,11 +43,31 @@ export default function AuthPage() {
     router.replace(nextPath)
   }, [nextPath, router])
 
+  // Show "already signed in" banner if a token + user are present in localStorage
+  useEffect(() => {
+    const token = getAccessToken()
+    const user = getStoredUser()
+    if (token && user) {
+      setAlreadySignedIn(true)
+      setSignedInAs(user.full_name?.trim() || user.email)
+    }
+  }, [])
+
   const handleSubmit = async () => {
     setLoading(true)
     setError(null)
     setMessage(null)
     try {
+      if (mode === 'forgot') {
+        const res = await requestPasswordReset(email)
+        if (!res.success) {
+          setError(res.error ?? 'Request failed')
+          return
+        }
+        setMessage('If that email is registered you will receive a reset link shortly.')
+        return
+      }
+
       const res = mode === 'login'
         ? await login(email, password)
         : await signup(fullName, email, password)
@@ -104,6 +127,20 @@ export default function AuthPage() {
             </div>
           ) : (
             <>
+          {/* Already signed in banner */}
+          {alreadySignedIn && mode !== 'forgot' && (
+            <div className="mb-4 flex items-center justify-between rounded-xl border border-success/30 bg-success/10 px-3 py-2.5 text-sm text-success">
+              <span>Signed in as <strong>{signedInAs}</strong></span>
+              <button
+                onClick={() => { clearAuthSession(); setAlreadySignedIn(false); setSignedInAs(null); setMessage('Signed out.') }}
+                className="ml-3 shrink-0 rounded-lg border border-success/30 bg-success/10 px-2.5 py-1 text-xs font-semibold hover:bg-success/20 transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
+          )}
+
+          {/* Mode tabs */}
           <div className="flex gap-1 rounded-xl bg-surface-overlay p-1">
             {(['login', 'signup'] as Mode[]).map(value => (
               <button
@@ -116,6 +153,34 @@ export default function AuthPage() {
             ))}
           </div>
 
+          {/* Forgot password form */}
+          {mode === 'forgot' ? (
+            <div className="mt-5 flex flex-col gap-3">
+              <p className="text-sm text-text-secondary">Enter your email and we'll send a reset link (expires in 1 hour).</p>
+              <div>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase text-text-muted">Email</label>
+                <input value={email} onChange={e => setEmail(e.target.value)} className={inputCls} type="email" placeholder="you@example.com" />
+              </div>
+              {error && <div className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div>}
+              {message && <div className="rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">{message}</div>}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSubmit}
+                  disabled={loading || !email}
+                  className="flex-1 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {loading ? 'Sending…' : 'Send Reset Link'}
+                </button>
+                <button
+                  onClick={() => { setMode('login'); setError(null); setMessage(null) }}
+                  className="rounded-xl border border-surface-border bg-surface-overlay px-4 py-3 text-sm font-semibold text-text-secondary transition-colors hover:bg-surface-border"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
           <div className="mt-5 flex flex-col gap-3">
             {mode === 'signup' && (
               <div>
@@ -131,6 +196,15 @@ export default function AuthPage() {
               <label className="mb-1.5 block text-[11px] font-semibold uppercase text-text-muted">Password</label>
               <input value={password} onChange={e => setPassword(e.target.value)} className={inputCls} type="password" placeholder="At least 8 characters" />
             </div>
+            {mode === 'login' && (
+              <button
+                type="button"
+                onClick={() => { setMode('forgot'); setError(null); setMessage(null) }}
+                className="self-end text-[11px] text-text-muted hover:text-text-secondary transition-colors"
+              >
+                Forgot password?
+              </button>
+            )}
           </div>
 
           {error && <div className="mt-4 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div>}
@@ -144,15 +218,18 @@ export default function AuthPage() {
             >
               {loading ? 'Working…' : mode === 'login' ? 'Sign In' : 'Create Account'}
             </button>
-            <button
-              onClick={() => { clearAuthSession(); setMessage('Signed out locally'); setError(null) }}
-              className="rounded-xl border border-surface-border bg-surface-overlay px-4 py-3 text-sm font-semibold text-text-secondary transition-colors hover:bg-surface-border"
-            >
-              Clear Token
-            </button>
           </div>
             </>
           )}
+            </>
+          )}
+          {/* Legal links */}
+          <p className="mt-4 text-center text-[11px] text-text-muted">
+            By continuing you agree to our{' '}
+            <Link href="/terms" className="underline hover:text-text-secondary">Terms of Service</Link>
+            {' '}and{' '}
+            <Link href="/privacy" className="underline hover:text-text-secondary">Privacy Policy</Link>.
+          </p>
         </section>
       </div>
     </div>

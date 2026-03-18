@@ -5,6 +5,7 @@ import { runProjections, downloadFile, toCsv, type PlayerProjection } from '@/li
 import { formatSalary } from '@/lib/utils'
 import { useLatestSlate } from '@/hooks/useLatestSlate'
 import { SlateSelector } from '@/components/shared/SlateSelector'
+import { SkeletonTable } from '@/components/ui/Skeleton'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -242,6 +243,13 @@ export default function ProjectionsPage() {
                 <span className="text-xl font-bold text-text-primary">{s.value}</span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Skeleton while loading */}
+        {loading && projections.length === 0 && (
+          <div className="bg-surface-raised border border-surface-border rounded-xl p-4">
+            <SkeletonTable rows={10} cols={10} />
           </div>
         )}
 

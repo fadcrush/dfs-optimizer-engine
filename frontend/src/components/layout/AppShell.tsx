@@ -1,11 +1,12 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Sidebar } from './Sidebar'
 import { cn } from '@/lib/utils'
 import { AUTH_DISABLED, AUTH_SESSION_EVENT, getAccessToken } from '@/lib/auth'
 
-const PUBLIC_PATHS = new Set(['/auth'])
+const PUBLIC_PATHS = new Set(['/auth', '/auth/reset-password', '/privacy', '/terms'])
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -92,6 +93,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
       >
         <main className="flex-1 overflow-y-auto scrollbar-thin">{children}</main>
+        <footer className="shrink-0 border-t border-surface-border/50 px-6 py-2 flex items-center justify-end gap-4">
+          <Link href="/privacy" className="text-[11px] text-text-muted hover:text-text-secondary transition-colors">
+            Privacy Policy
+          </Link>
+          <Link href="/terms" className="text-[11px] text-text-muted hover:text-text-secondary transition-colors">
+            Terms of Service
+          </Link>
+          <span className="text-[11px] text-text-muted/40 select-none">
+            © {new Date().getFullYear()} DFS Edge Pro
+          </span>
+        </footer>
       </div>
     </div>
   )

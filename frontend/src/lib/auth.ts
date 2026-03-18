@@ -2,8 +2,16 @@
 
 export const ACCESS_TOKEN_KEY = 'dfs_edge_access_token'
 export const TOKEN_TYPE_KEY = 'dfs_edge_token_type'
+export const USER_DATA_KEY = 'dfs_edge_user'
 export const AUTH_SESSION_EVENT = 'dfs_edge_auth_session_changed'
 export const AUTH_DISABLED = process.env.NEXT_PUBLIC_DISABLE_AUTH === '1'
+
+export type StoredUser = {
+  id: string
+  email: string
+  full_name?: string | null
+  tier?: string
+}
 
 export function getAccessToken(): string | null {
   if (typeof window === 'undefined') return null
@@ -24,10 +32,27 @@ export function storeAuthSession(accessToken: string, tokenType = 'bearer') {
   window.dispatchEvent(new Event(AUTH_SESSION_EVENT))
 }
 
+export function storeUserData(user: StoredUser): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(USER_DATA_KEY, JSON.stringify(user))
+  window.dispatchEvent(new Event(AUTH_SESSION_EVENT))
+}
+
+export function getStoredUser(): StoredUser | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(USER_DATA_KEY)
+    return raw ? (JSON.parse(raw) as StoredUser) : null
+  } catch {
+    return null
+  }
+}
+
 export function clearAuthSession() {
   if (typeof window === 'undefined') return
   window.localStorage.removeItem(ACCESS_TOKEN_KEY)
   window.localStorage.removeItem(TOKEN_TYPE_KEY)
+  window.localStorage.removeItem(USER_DATA_KEY)
   window.dispatchEvent(new Event(AUTH_SESSION_EVENT))
 }
 

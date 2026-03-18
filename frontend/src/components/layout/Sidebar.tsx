@@ -1,16 +1,17 @@
 'use client'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, Database, BarChart2, Zap, TrendingUp,
   Shuffle, ArrowLeftRight, LineChart, Activity,
-  ChevronLeft, Bell, Moon, Sun, Menu, Search, Shield,
+  ChevronLeft, Bell, Moon, Sun, Menu, Search, Shield, LogOut,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useClock } from '@/hooks/useClock'
 import { cn } from '@/lib/utils'
 import { GlobalSearch } from './GlobalSearch'
+import { AUTH_SESSION_EVENT, clearAuthSession, getStoredUser, type StoredUser } from '@/lib/auth'
 
 const NAV_ITEMS = [
   { href: '/',            label: 'Dashboard',   icon: LayoutDashboard },
@@ -33,13 +34,39 @@ export function Sidebar({
   onToggle: () => void
 }) {
   const path = usePathname()
+  const router = useRouter()
   const { resolvedTheme, setTheme } = useTheme()
   const clock = useClock()
   const [searchOpen, setSearchOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [storedUser, setStoredUser] = useState<StoredUser | null>(null)
 
   // Avoid hydration mismatch for theme
   useEffect(() => setMounted(true), [])
+
+  // Keep user avatar in sync with auth state
+  useEffect(() => {
+    const sync = () => setStoredUser(getStoredUser())
+    sync()
+    window.addEventListener(AUTH_SESSION_EVENT, sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener(AUTH_SESSION_EVENT, sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
+
+  const userInitial = storedUser
+    ? (storedUser.full_name?.trim()[0] ?? storedUser.email[0]).toUpperCase()
+    : '?'
+  const userLabel = storedUser
+    ? (storedUser.full_name?.trim() || storedUser.email)
+    : 'Not signed in'
+
+  const handleSignOut = () => {
+    clearAuthSession()
+    router.push('/auth')
+  }
 
   // Global Cmd+K / Ctrl+K shortcut
   useEffect(() => {
@@ -148,12 +175,26 @@ export function Sidebar({
             >
               <Bell className="w-4 h-4" />
             </button>
-            <div
-              className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white shrink-0 select-none"
-              aria-label="User avatar"
-            >
-              D
-            </div>
+            {storedUser ? (
+              <button
+                onClick={handleSignOut}
+                title={`Signed in as ${userLabel} — click to sign out`}
+                aria-label={`Signed in as ${userLabel}. Click to sign out.`}
+                className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white shrink-0 select-none hover:bg-danger transition-colors group"
+              >
+                <span className="group-hover:hidden">{userInitial}</span>
+                <LogOut className="w-3.5 h-3.5 hidden group-hover:block" aria-hidden="true" />
+              </button>
+            ) : (
+              <Link
+                href="/auth"
+                title="Sign in"
+                aria-label="Sign in"
+                className="w-7 h-7 rounded-full bg-surface-border flex items-center justify-center text-[10px] font-bold text-text-muted shrink-0 select-none hover:bg-surface-raised transition-colors"
+              >
+                ?
+              </Link>
+            )}
           </div>
         </div>
       </aside>
