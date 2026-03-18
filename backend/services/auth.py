@@ -190,3 +190,65 @@ def require_plan(min_tier: str = "pro"):
             )
         return current_user
     return _check
+
+
+# ---------------------------------------------------------------------------
+# Password-reset token helpers
+# ---------------------------------------------------------------------------
+# Tokens are HMAC-SHA256 over "{user_id}:{expiry_unix_ts}" using the JWT
+# secret key.  We store only the SHA-256 hash in the DB so a compromised DB
+# cannot be used to construct valid reset links.
+# ---------------------------------------------------------------------------
+
+import hashlib
+import hmac
+import time as _time
+
+
+def create_password_reset_token(user_id: str, ttl_seconds: int = 3600) -> tuple[str, datetime]:
+    """Generate a signed password-reset token.
+
+    Returns:
+        (plain_token, expires_at)  — store hash(plain_token) in the DB.
+    """
+    expiry = int(_time.time()) + ttl_seconds
+    payload = f"{user_id}:{expiry}"
+    sig = hmac.new(SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    plain_token = f"{payload}:{sig}"
+    expires_at = datetime.utcfromtimestamp(expiry)
+    return plain_token, expires_at
+
+
+def hash_reset_token(plain_token: str) -> str:
+    """Return the SHA-256 hex digest of *plain_token* for DB storage."""
+    return hashlib.sha256(plain_token.encode()).hexdigest()
+
+
+def verify_password_reset_token(plain_token: str, stored_hash: str, expires_at) -> str:
+    """Verify a reset token and return the user_id it was issued for.
+
+    Raises ``ValueError`` with a user-safe message on any failure.
+    """
+    try:
+        parts = plain_token.rsplit(":", 2)
+        if len(parts) != 3:
+            raise ValueError("Invalid token format")
+        user_id, expiry_str, sig = parts
+    except Exception:
+        raise ValueError("Malformed reset token")
+
+    # Constant-time signature check
+    payload = f"{user_id}:{expiry_str}"
+    expected_sig = hmac.new(SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected_sig, sig):
+        raise ValueError("Invalid reset token")
+
+    # Expiry check
+    if int(_time.time()) > int(expiry_str):
+        raise ValueError("Reset token has expired")
+
+    # DB-side hash check (ensures the token hasn't already been used/revoked)
+    if stored_hash != hash_reset_token(plain_token):
+        raise ValueError("Reset token has already been used")
+
+    return user_id

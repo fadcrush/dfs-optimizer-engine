@@ -180,6 +180,14 @@ async def save_lineup_file(data: str, file_id: str, user_id: str | None = None) 
     }
 
 def get_file_path(file_name: str, file_type: str = "slate", user_id: str | None = None) -> Path:
-    """Get full path for a file"""
+    """Return the resolved path for a user-owned file.
+
+    Validates that the resolved path stays within the expected per-user
+    directory to prevent path-traversal attacks.
+    """
     safe_name = _safe_file_name(file_name)
-    return get_user_storage_dir(file_type, user_id) / safe_name
+    base_dir = get_user_storage_dir(file_type, user_id)
+    resolved = (base_dir / safe_name).resolve()
+    if not str(resolved).startswith(str(base_dir.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    return resolved

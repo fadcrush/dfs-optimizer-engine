@@ -33,6 +33,10 @@ class User(Base):
     # Stripe billing
     stripe_customer_id = Column(String, nullable=True, unique=True)
     stripe_subscription_id = Column(String, nullable=True)
+
+    # Password reset (HMAC token stored as SHA-256 hash)
+    password_reset_token_hash = Column(String, nullable=True)
+    password_reset_expires_at = Column(DateTime, nullable=True)
     
     # Tracking
     created_at = Column(DateTime, default=datetime.utcnow)

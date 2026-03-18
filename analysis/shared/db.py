@@ -333,10 +333,35 @@ def register_migration(db_key: str, version: int, description: str, up: str | _M
 
 import os
 import threading
+from contextlib import contextmanager
 
 _registry_lock = threading.Lock()
 # { (pid, str_path, read_only): DuckDBPyConnection }
 _conn_registry: dict[tuple[int, str, bool], "duckdb.DuckDBPyConnection"] = {}
+
+# Per-database write-serialisation locks.  Separate from _registry_lock so
+# readers never contend with writers for the connection itself.
+_write_locks: dict[str, threading.Lock] = {}
+
+
+@contextmanager
+def write_lock(db_key: str):
+    """Context manager that serialises write operations for *db_key*.
+
+    Usage::
+
+        with write_lock("dfs_edge"):
+            conn.execute("INSERT INTO ...")
+
+    Uses a double-checked pattern to create per-key locks lazily without
+    holding the registry lock during the actual write operation.
+    """
+    with _registry_lock:
+        if db_key not in _write_locks:
+            _write_locks[db_key] = threading.Lock()
+        lock = _write_locks[db_key]
+    with lock:
+        yield
 
 
 def get_conn(

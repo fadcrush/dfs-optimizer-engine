@@ -80,6 +80,8 @@ def init_db():
         _ddls = [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token_hash VARCHAR",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMP",
         ]
         with engine.connect() as conn:
             for ddl in _ddls:
