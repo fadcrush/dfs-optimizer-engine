@@ -89,7 +89,7 @@ function BubbleChart({ players }: { players: EVPlayer[] }) {
   const cr = (ev: number) => 4 + (ev / maxEV) * 8
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ overflow: 'visible' }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="overflow-visible">
       {/* Axes */}
       <line x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={PAD.t + innerH} stroke="#1e293b" strokeWidth={1} />
       <line x1={PAD.l} y1={PAD.t + innerH} x2={PAD.l + innerW} y2={PAD.t + innerH} stroke="#1e293b" strokeWidth={1} />

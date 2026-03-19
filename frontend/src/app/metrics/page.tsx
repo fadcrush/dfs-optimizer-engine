@@ -102,7 +102,7 @@ function BarChart({ data }: { data: { date: string; completed: number; failed: n
                 <div className="w-full flex-1 bg-primary" style={{ borderRadius: d.failed > 0 ? '0' : '2px 2px 0 0' }} />
               </div>
             </div>
-            <span className="text-[8px] text-text-muted mt-0.5" style={{ transform: 'rotate(-45deg)', transformOrigin: 'top center' }}>{shortDate}</span>
+            <span className="text-[8px] text-text-muted mt-0.5 -rotate-45 origin-top">{shortDate}</span>
           </div>
         )
       })}
@@ -130,7 +130,7 @@ function LineChart({ data, label1 = 'MAE', label2 = 'RMSE' }: { data: { time: st
   const path95 = data.map((d, i) => `${i === 0 ? 'M' : 'L'}${px(i)},${py(d.p95)}`).join(' ')
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ overflow: 'visible' }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="overflow-visible">
       <path d={path50} fill="none" stroke="#3b82f6" strokeWidth={1.5} />
       <path d={path95} fill="none" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 2" />
       <text x={W - 2} y={py(data[data.length-1]?.p50 ?? 0)} fontSize={8} fill="#3b82f6" textAnchor="end">{label1}</text>
@@ -273,7 +273,7 @@ export default function MetricsPage() {
                 <span className="text-[11px] text-text-muted">MAE</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className="w-4 h-0.5 bg-warning" style={{ borderTop: '1px dashed' }} />
+                <div className="w-4 h-0.5 bg-warning border-t border-dashed border-warning" />
                 <span className="text-[11px] text-text-muted">RMSE</span>
               </div>
             </div>

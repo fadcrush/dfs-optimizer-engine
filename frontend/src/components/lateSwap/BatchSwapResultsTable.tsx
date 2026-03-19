@@ -109,7 +109,7 @@ export function BatchSwapResultsTable({
             {successRate}% clean
           </span>
         </div>
-        <span className="text-[13px] text-[#64748b] shrink-0 inline-block transition-transform duration-200" style={{ transform: expanded ? 'rotate(180deg)' : 'none' }}>▾</span>
+        <span className={cn('text-[13px] text-[#64748b] shrink-0 inline-block transition-transform duration-200', expanded && 'rotate-180')}>▾</span>
       </button>
 
       {expanded && (

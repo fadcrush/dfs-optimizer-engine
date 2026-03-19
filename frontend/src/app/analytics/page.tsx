@@ -166,7 +166,7 @@ export default function AnalyticsPage() {
             </div>
 
             {showForm && (
-              <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+              <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(180px,1fr))]">
                 {/* Date */}
                 <div>
                   <label className={labelCls}>Date</label>

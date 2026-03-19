@@ -594,13 +594,12 @@ function ExposurePanel({
           )}
         </div>
         <span
-          className="text-[13px] text-text-muted shrink-0 inline-block transition-transform duration-200"
-          style={{ transform: open ? 'rotate(180deg)' : 'none' }}
+          className={cn('text-[13px] text-text-muted shrink-0 inline-block transition-transform duration-200', open && 'rotate-180')}
         >▾</span>
       </button>
       {open && (
         <div className="px-[18px] pb-4 border-t border-surface-border">
-          <div className="grid gap-[5px] mt-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+          <div className="grid gap-[5px] mt-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
             {exposureEntries.map(([name, count]) => {
               const isScratched = scratchedNamesSet.has(name.toLowerCase())
               const isLocked = lockedSet.has(name.toLowerCase())
@@ -681,7 +680,7 @@ function ReOptimizePanel({
           </div>
         )}
 
-        <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
+        <div className="grid gap-3 mb-4 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
           <div>
             <label className={lblCls}>Lineups to Build</label>
             <input type="number" min={1} max={150} value={numLineups}
@@ -2260,7 +2259,7 @@ export default function LateSwapPage() {
                     </span>
                   )}
                 </div>
-                <span className="text-base text-[#fbbf24] shrink-0 inline-block transition-transform duration-200" style={{ transform: injuryOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                <span className={cn('text-base text-[#fbbf24] shrink-0 inline-block transition-transform duration-200', injuryOpen && 'rotate-180')}>
                   ?
                 </span>
               </button>
@@ -2379,7 +2378,7 @@ export default function LateSwapPage() {
 
         {/* --- Locked Players (Started Games) --- */}
         <div className="bg-surface-overlay border border-sky-500/20 rounded-xl px-[18px] py-3.5">
-          <div className="flex justify-between items-center" style={{ marginBottom: lockedText.trim() ? 10 : 0 }}>
+          <div className={cn('flex justify-between items-center', lockedText.trim() ? 'mb-2.5' : '')}>
             <div className="text-xs font-bold text-[#38bdf8] uppercase tracking-[0.05em] flex items-center gap-2">
               ?? Locked Players � Started Games
               {lockedNames.length > 0 && (

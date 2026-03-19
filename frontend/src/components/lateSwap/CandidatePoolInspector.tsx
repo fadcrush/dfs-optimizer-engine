@@ -153,7 +153,7 @@ export function CandidatePoolInspector({
             </span>
           )}
         </div>
-        <span className="text-sm text-text-muted shrink-0 inline-block transition-transform duration-200" style={{ transform: open ? 'rotate(180deg)' : 'none' }}>▾</span>
+        <span className={cn('text-sm text-text-muted shrink-0 inline-block transition-transform duration-200', open && 'rotate-180')}>▾</span>
       </button>
 
       {open && (
