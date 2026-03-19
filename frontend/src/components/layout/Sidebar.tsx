@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, Database, BarChart2, Zap, TrendingUp,
   Shuffle, ArrowLeftRight, LineChart, Activity,
-  ChevronLeft, Bell, Moon, Sun, Menu, Search, Shield, LogOut,
+  ChevronLeft, Bell, Moon, Sun, Menu, Search, Settings, LogOut,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useClock } from '@/hooks/useClock'
@@ -23,7 +23,7 @@ const NAV_ITEMS = [
   { href: '/late-swap',   label: 'Late Swap',   icon: ArrowLeftRight },
   { href: '/analytics',   label: 'Analytics',   icon: LineChart },
   { href: '/metrics',     label: 'Metrics',     icon: Activity },
-  { href: '/auth',        label: 'Auth',        icon: Shield },
+  { href: '/settings',    label: 'Settings',    icon: Settings },
 ]
 
 export function Sidebar({

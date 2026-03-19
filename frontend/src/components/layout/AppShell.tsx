@@ -6,7 +6,7 @@ import { Sidebar } from './Sidebar'
 import { cn } from '@/lib/utils'
 import { AUTH_DISABLED, AUTH_SESSION_EVENT, getAccessToken } from '@/lib/auth'
 
-const PUBLIC_PATHS = new Set(['/auth', '/auth/reset-password', '/privacy', '/terms'])
+const PUBLIC_PATHS = new Set(['/auth', '/auth/reset-password', '/privacy', '/terms', '/billing/success', '/billing/cancel'])
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()

@@ -14,6 +14,7 @@ import {
 import { formatSalary, formatProjection, cn } from '@/lib/utils'
 import { useLatestSlate } from '@/hooks/useLatestSlate'
 import { SlateSelector } from '@/components/shared/SlateSelector'
+import { SkeletonTable } from '@/components/ui/Skeleton'
 import { ContestModeSelector, CONTEST_MODE_PRESETS, type ContestMode, type ContestModeConfig } from '@/components/shared/ContestModeSelector'
 import { LockFadeControl } from '@/components/shared/LockFadeControl'
 import { CopyLineupButton } from '@/components/shared/CopyLineupButton'
@@ -992,6 +993,13 @@ export default function OptimizerPage() {
 
         {/* Error */}
         {error && <ErrorDisplay message={error.message} rawError={error.raw} />}
+
+        {/* Skeleton while optimizer is running */}
+        {(loading || pipelineLoading) && !result && (
+          <div className="bg-surface-raised border border-surface-border rounded-xl p-4">
+            <SkeletonTable rows={10} cols={7} />
+          </div>
+        )}
 
         {/* Pipeline steps banner */}
         {pipelineSteps && (

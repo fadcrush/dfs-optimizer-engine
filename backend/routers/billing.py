@@ -6,6 +6,7 @@ Stripe-backed subscription management.
 Endpoints
 ---------
 POST /billing/subscribe       — Create a Stripe Checkout session (redirect URL)
+POST /billing/portal          — Create a Stripe Customer Portal session (manage / cancel)
 POST /billing/webhook         — Handle Stripe webhook events
 GET  /billing/status          — Current user's subscription status
 
@@ -108,6 +109,47 @@ async def create_checkout_session(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
     return {"checkout_url": session.url}
+
+
+# ---------------------------------------------------------------------------
+# POST /billing/portal
+# ---------------------------------------------------------------------------
+
+@router.post("/portal")
+async def create_portal_session(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Create a Stripe Customer Portal session so the user can manage or cancel
+    their subscription without leaving the product.
+
+    Returns ``{portal_url: "https://billing.stripe.com/..."}``
+    """
+    if not stripe.api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Billing not configured (STRIPE_SECRET_KEY missing).",
+        )
+
+    user = _get_user_row(current_user, db)
+
+    if not user.stripe_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No Stripe customer found. Please subscribe first.",
+        )
+
+    try:
+        portal = stripe.billing_portal.Session.create(
+            customer=user.stripe_customer_id,
+            return_url=f"{_FRONTEND_URL}/settings",
+        )
+    except stripe.StripeError as exc:
+        log.error("Stripe portal session create failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+    return {"portal_url": portal.url}
 
 
 # ---------------------------------------------------------------------------
