@@ -18,6 +18,22 @@ from .schemas import ProjectionContext
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Position-based CV (coefficient of variation) fallbacks when a player has
+# insufficient game-log history for a reliable individual estimate.
+# Derived from NBA historical DFS variance analysis; capped to [0.12, 0.45].
+# ---------------------------------------------------------------------------
+_POSITION_DEFAULT_CV: dict[str, float] = {
+    "PG": 0.23,
+    "SG": 0.22,
+    "SF": 0.21,
+    "PF": 0.20,
+    "C":  0.19,
+}
+_POSITION_DEFAULT_CV_FALLBACK = 0.22   # unknown position
+_CV_MIN = 0.12
+_CV_MAX = 0.45
+
+# ---------------------------------------------------------------------------
 # Default path to the game-log DuckDB (relative to this file, two levels up)
 # ---------------------------------------------------------------------------
 _DEFAULT_DB = Path(__file__).resolve().parent.parent.parent / "data" / "dfs_edge.duckdb"
@@ -102,6 +118,86 @@ def _load_game_log_baseline(
     return baseline
 
 
+def _load_stddev_baseline(
+    site: str,
+    db_path: Path = _DEFAULT_DB,
+    lookback_games: int = 20,
+    min_games: int = 5,
+) -> dict[str, dict]:
+    """
+    Query per-player rolling standard deviation from ``player_game_logs``.
+
+    Uses the most recent ``lookback_games`` games (with > 0 minutes played)
+    and requires at least ``min_games`` qualifying records before computing a
+    reliable CV.  Returns a dict keyed by name slug:
+
+        {"lebronsjames": {"cv": 0.19, "std": 9.2, "games": 18}}
+
+    The ``cv`` (coefficient of variation = std / mean) is clamped to
+    [``_CV_MIN``, ``_CV_MAX``] to prevent extreme outliers from distorting
+    floor/ceiling estimates.
+
+    Returns an empty dict on any error — callers fall back to position-based
+    default CVs.
+    """
+    try:
+        import duckdb  # noqa: F401 — presence check
+    except ImportError:
+        return {}
+
+    if not db_path.exists():
+        return {}
+
+    pts_col = "dk_pts" if site.upper() == "DK" else "fd_pts"
+
+    try:
+        con = get_conn(db_path)
+        sql = f"""
+            WITH ranked AS (
+                SELECT
+                    player_name,
+                    {pts_col} AS pts,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY player_name
+                        ORDER BY game_date DESC
+                    ) AS rn
+                FROM player_game_logs
+                WHERE minutes > 0
+            ),
+            windowed AS (
+                SELECT player_name, pts
+                FROM ranked
+                WHERE rn <= {lookback_games}
+            )
+            SELECT
+                player_name,
+                ROUND(STDDEV_SAMP(pts), 4)  AS std_pts,
+                ROUND(AVG(pts), 4)          AS avg_pts,
+                COUNT(*)                    AS games
+            FROM windowed
+            GROUP BY player_name
+            HAVING COUNT(*) >= {min_games}
+        """
+        rows = con.execute(sql).fetchall()
+    except Exception as exc:
+        log.warning("StdDev baseline query failed: %s", exc)
+        return {}
+
+    result: dict[str, dict] = {}
+    for player_name, std_pts, avg_pts, games in rows:
+        std = float(std_pts or 0.0)
+        avg = float(avg_pts or 0.0)
+        if avg > 0:
+            cv = max(_CV_MIN, min(_CV_MAX, std / avg))
+        else:
+            cv = _POSITION_DEFAULT_CV_FALLBACK
+        slug = _slugify(player_name)
+        result[slug] = {"cv": round(cv, 4), "std": round(std, 3), "games": int(games)}
+
+    log.debug("StdDev baseline loaded: %d players (L%d)", len(result), lookback_games)
+    return result
+
+
 class ProjectionEngine(Protocol):
     def generate(self, slate_df: pd.DataFrame, context: ProjectionContext) -> pd.DataFrame:
         ...
@@ -118,15 +214,27 @@ class CanonicalNBAProjectionEngine:
     2. Game-log L10 avg  — last ``gl_lookback`` games from ``dfs_edge.duckdb``.
     3. Box-score scoring — DK/FD formula applied to stat columns in the slate.
     4. Zero             — no signal; player should be excluded by the pool filter.
+
+    Variance model (Phase 14)
+    ─────────────────────────
+    Each player receives an individual ``StdDev`` derived from their actual
+    rolling coefficient of variation over the last ``stddev_lookback`` games.
+    Players with fewer than ``stddev_min_games`` qualifying logs fall back to
+    a position-adjusted default CV.  ``Floor`` and ``Ceiling`` are then:
+
+        Floor   = (Proj − 1.0 × StdDev).clip(lower=0)
+        Ceiling = Proj + 1.5 × StdDev
     """
 
-    variance_pct: float = 0.18
-    gl_lookback: int = 10  # number of past games for the L10 average
+    variance_pct: float = 0.18          # kept as fallback; unused when stddev data available
+    gl_lookback: int = 10               # games for the L10 mean baseline
+    stddev_lookback: int = 20           # games for the per-player std-dev estimate
+    stddev_min_games: int = 5           # minimum games before using individual CV
     gl_db_path: Path = field(default_factory=lambda: _DEFAULT_DB)
-    dvp_lookback_days: int = 30  # days of game logs used for DvP calculation
-    dvp_enabled: bool = True      # set False to disable DvP for clean A/B testing
-    b2b_enabled: bool = True      # set False to disable B2B/rest-days for A/B testing
-    blowout_enabled: bool = True  # set False to disable blowout risk for A/B testing
+    dvp_lookback_days: int = 30         # days of game logs used for DvP calculation
+    dvp_enabled: bool = True            # set False to disable DvP for clean A/B testing
+    b2b_enabled: bool = True            # set False to disable B2B/rest-days for A/B testing
+    blowout_enabled: bool = True        # set False to disable blowout risk for A/B testing
 
     def generate(self, slate_df: pd.DataFrame, context: ProjectionContext) -> pd.DataFrame:
         if context.sport != "NBA":
@@ -141,6 +249,11 @@ class CanonicalNBAProjectionEngine:
             context.site, self.gl_db_path, self.gl_lookback
         )
         site_key = "dk" if context.site == "DK" else "fd"
+
+        # Load per-player standard-deviation baseline (fails gracefully to {})
+        stddev_baseline = _load_stddev_baseline(
+            context.site, self.gl_db_path, self.stddev_lookback, self.stddev_min_games
+        )
 
         # Load Defense-vs-Player table (fails gracefully to empty dict → neutral)
         dvp_table: dict[str, float] = {}
@@ -248,20 +361,47 @@ class CanonicalNBAProjectionEngine:
         else:
             df["Blowout"] = 1.0
 
-        df["Floor"] = (df["Proj"] * (1.0 - self.variance_pct)).clip(lower=0)
-        df["Ceiling"] = df["Proj"] * (1.0 + self.variance_pct * 1.5)
+        # ── Per-player variance model ──────────────────────────────────────────
+        # Prefer individual CV from rolling game logs; fall back to position CV.
+        # StdDev = Proj × CV
+        # Floor   = (Proj − 1.0 × StdDev).clip(lower=0)
+        # Ceiling = Proj + 1.5 × StdDev
+        pos_col = next((c for c in ["Pos", "pos", "Position"] if c in df.columns), None)
+
+        std_devs: list[float] = []
+        for idx, row in df.iterrows():
+            slug = _slugify(str(row.get("Name", "")))
+            sd_entry = stddev_baseline.get(slug)
+            if sd_entry:
+                cv = sd_entry["cv"]
+            else:
+                raw_pos = str(row.get(pos_col, "") if pos_col else "")
+                pos = raw_pos.split("/")[0].strip().upper()
+                cv = _POSITION_DEFAULT_CV.get(pos, _POSITION_DEFAULT_CV_FALLBACK)
+            proj_val = float(df.at[idx, "Proj"])
+            std_devs.append(round(proj_val * cv, 3))
+
+        df["StdDev"] = pd.Series(std_devs, index=df.index, dtype=float)
+        df["Floor"] = (df["Proj"] - df["StdDev"]).clip(lower=0).round(4)
+        df["Ceiling"] = (df["Proj"] + 1.5 * df["StdDev"]).round(4)
         df["Value"] = (df["Proj"] / (df["Salary"] / 1000.0).replace(0, pd.NA)).fillna(0.0)
 
+        n_individual_cv = sum(
+            1 for _, row in df.iterrows()
+            if _slugify(str(row.get("Name", ""))) in stddev_baseline
+        )
         n_base = sum(1 for v in scored_projection if v > 0 and has_base)
         n_gl = sum(1 for gl, base in zip(gl_l10_values, scored_projection)
                    if gl > 0 and (not has_base or float(0) == base))
         log.info(
-            "Projections built — Base_Proj: %d, GL_L10: %d, box: %d  (total %d players)",
+            "Projections built — Base_Proj: %d, GL_L10: %d, box: %d  (total %d players) "
+            "— StdDev: %d individual / %d position fallback",
             n_base, n_gl, has_box, len(df),
+            n_individual_cv, len(df) - n_individual_cv,
         )
 
         out_cols = ["DFS_ID", "Raw_DFS_ID", "Name", "Team", "Opp", "Pos", "Salary",
                     "Proj", "GL_L10", "DvP", "Rest", "Blowout",
-                    "Floor", "Ceiling", "Own", "Value",
+                    "StdDev", "Floor", "Ceiling", "Own", "Value",
                     "InjuryStatus"]
         return df[[c for c in out_cols if c in df.columns]]

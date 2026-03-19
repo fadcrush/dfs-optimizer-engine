@@ -43,8 +43,18 @@ def estimate_ownership(proj_df: pd.DataFrame) -> pd.DataFrame:
     else:
         df["Own_Est"] = (df["own_score"] / max_score) * 60.0  # cap ~60%
 
-    # LEVERAGE: more projection at lower ownership
-    # Simple version: Proj_Final * (1 - Own_Est/100)
-    df["Leverage_Score"] = df["Proj_Final"] * (1.0 - df["Own_Est"] / 100.0)
+    # LEVERAGE: projection edge per unit of ownership.
+    # Formula: Proj_Final / Own_Est  (higher = more projection per ownership %)
+    #
+    # A player with 40 pts proj at 5% own  → leverage 8.0  (high edge)
+    # A player with 40 pts proj at 80% own → leverage 0.5  (chalk, low edge)
+    # A player with 10 pts proj at 3% own  → leverage 3.3  (low proj contrarian)
+    #
+    # Protects against division-by-zero: Own_Est is floored at 0.5 %.
+    safe_own = df["Own_Est"].clip(lower=0.5)
+    df["Leverage_Score"] = (df["Proj_Final"] / safe_own).round(3)
+
+    # Drop internal rank columns — they are implementation details, not output.
+    df.drop(columns=["proj_rank", "sal_rank", "own_score"], inplace=True, errors="ignore")
 
     return df
