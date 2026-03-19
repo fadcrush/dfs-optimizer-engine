@@ -95,6 +95,44 @@ _MIGRATIONS: dict[str, list[tuple[int, str, str | _MigrationFn]]] = {
             ALTER TABLE lineup_results ADD COLUMN IF NOT EXISTS user_id VARCHAR DEFAULT '';
             """,
         ),
+        (
+            5,
+            "projection_snapshots table for backtesting",
+            """
+            CREATE TABLE IF NOT EXISTS projection_snapshots (
+                slate_date   DATE        NOT NULL,
+                site         VARCHAR     NOT NULL,
+                player_slug  VARCHAR     NOT NULL,
+                player_name  VARCHAR,
+                proj         DOUBLE,
+                std_dev      DOUBLE,
+                floor_val    DOUBLE,
+                ceiling_val  DOUBLE,
+                salary       INTEGER,
+                snapped_at   TIMESTAMPTZ DEFAULT now(),
+                PRIMARY KEY (slate_date, site, player_slug)
+            );
+            """,
+        ),
+        (
+            6,
+            "projection_accuracy_log table for backtesting",
+            """
+            CREATE TABLE IF NOT EXISTS projection_accuracy_log (
+                run_date      DATE    NOT NULL,
+                site          VARCHAR NOT NULL,
+                n_players     INTEGER,
+                mae           DOUBLE,
+                rmse          DOUBLE,
+                bias          DOUBLE,
+                r_squared     DOUBLE,
+                pct_within_5  DOUBLE,
+                pct_within_10 DOUBLE,
+                computed_at   TIMESTAMPTZ DEFAULT now(),
+                PRIMARY KEY (run_date, site)
+            );
+            """,
+        ),
     ],
 
     # ------------------------------------------------------------------ #
