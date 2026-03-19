@@ -10,7 +10,7 @@ import pandas as pd
 
 from analysis.shared.scoring import score_nba_row
 from analysis.nba.dvp import load_dvp_table, load_dvp_by_position
-from analysis.nba.b2b import get_rest_multipliers, get_blowout_multipliers
+from analysis.nba.b2b import get_rest_multipliers, get_blowout_multipliers, get_game_total_multipliers
 from analysis.nba.ownership_v2 import predict_ownership
 from analysis.shared.db import get_conn
 
@@ -318,6 +318,7 @@ class CanonicalNBAProjectionEngine:
     b2b_enabled: bool = True            # set False to disable B2B/rest-days for A/B testing
     blowout_enabled: bool = True        # set False to disable blowout risk for A/B testing
     minutes_trend_enabled: bool = True  # set False to disable minutes-trend layer
+    game_total_enabled: bool = True     # set False to disable game O/U adjustment
     ownership_enabled: bool = True      # set False to skip ownership estimation
     contest_type: str = "gpp"          # "gpp" | "cash" | "double_up" | "winner_take_all"
 
@@ -493,6 +494,39 @@ class CanonicalNBAProjectionEngine:
         else:
             df["MinutesTrend"] = 0.0
 
+        # ── Layer 8: Game over/under (game-total) adjustment ────────────────────
+        # Players in high-scoring game environments (large O/U) get a modest
+        # projection boost; defensive slog games get a small reduction.
+        # Uses same vegas_totals dict as Layer 6 (already fetched above if
+        # blowout_enabled was set).  Re-fetches only if blowout was disabled.
+        if self.game_total_enabled and team_col:
+            gt_vegas: dict[str, dict] = {}
+            if context.vegas and all(
+                isinstance(v, dict) and ("total" in v or "game_total" in v)
+                for v in context.vegas.values()
+            ):
+                gt_vegas = context.vegas  # type: ignore[assignment]
+            else:
+                try:
+                    from analysis.shared.vegas_enricher import _fetch_team_totals  # noqa: PLC0415
+                    gt_vegas = _fetch_team_totals("NBA")
+                except Exception as exc:
+                    log.debug("GameTotal: Vegas fetch failed: %s", exc)
+
+            gt_mults = get_game_total_multipliers(gt_vegas)
+            if gt_mults:
+                gt_series = df[team_col].map(
+                    lambda t: gt_mults.get(str(t).strip().upper(), 1.0)
+                )
+                df["GameTotal"] = gt_series.round(5)
+                df["Proj"] = (df["Proj"] * gt_series).round(4)
+                n_gt = int((gt_series != 1.0).sum())
+                log.info("Game-total adjustment applied to %d/%d players", n_gt, len(df))
+            else:
+                df["GameTotal"] = 1.0
+        else:
+            df["GameTotal"] = 1.0
+
         # ── Per-player variance model ──────────────────────────────────────────
         # Prefer individual CV from rolling game logs; fall back to position CV.
         # StdDev = Proj × CV
@@ -561,7 +595,7 @@ class CanonicalNBAProjectionEngine:
         )
 
         out_cols = ["DFS_ID", "Raw_DFS_ID", "Name", "Team", "Opp", "Pos", "Salary",
-                    "Proj", "GL_L10", "DvP", "Rest", "Blowout", "MinutesTrend",
+                    "Proj", "GL_L10", "DvP", "Rest", "Blowout", "MinutesTrend", "GameTotal",
                     "StdDev", "Floor", "Ceiling",
                     "Own", "Own_Est", "own_source", "Leverage",
                     "Value", "InjuryStatus"]

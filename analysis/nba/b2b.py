@@ -184,3 +184,62 @@ def get_blowout_multipliers(vegas_totals: dict[str, dict]) -> dict[str, float]:
     if n_penalized:
         log.debug("Blowout risk: %d/%d teams carry a spread penalty", n_penalized, len(multipliers))
     return multipliers
+
+
+# ---------------------------------------------------------------------------
+# Game-total (over/under) projection multiplier — §3.4 correlated signal
+# ---------------------------------------------------------------------------
+
+_LEAGUE_AVG_TOTAL: float = 220.0
+# How much the multiplier shifts per point of total above/below league average.
+# 0.0025 → ±2.5% for a 10-point swing in the O/U (e.g. 230 vs. 220 → +2.5%).
+_TOTAL_SENSITIVITY: float = 0.0025
+# Hard cap on the adjustment in either direction.
+_TOTAL_CAP: float = 0.05   # ±5 %
+
+
+def get_game_total_multipliers(
+    vegas_totals: dict[str, dict],
+    league_avg: float = _LEAGUE_AVG_TOTAL,
+    sensitivity: float = _TOTAL_SENSITIVITY,
+    cap: float = _TOTAL_CAP,
+) -> dict[str, float]:
+    """Return ``{TEAM: multiplier}`` based on the game over/under total.
+
+    Players in high-scoring game environments (large O/U) get a modest boost;
+    defensive slug-fests (low O/U) get a small penalty.  The adjustment is
+    symmetric and linear around ``league_avg``, capped at ``±cap``.
+
+    Formula (per team)::
+
+        delta  = clamp((game_total - league_avg) * sensitivity, -cap, +cap)
+        mult   = 1.0 + delta
+
+    E.g. game total = 232, league avg = 220, sensitivity = 0.0025:
+        delta = (232 - 220) * 0.0025 = 0.030  →  multiplier = 1.030
+
+    ``vegas_totals`` format: ``{team_abbrev: {"total": float, ...}}``
+    (same dict produced by ``analysis.shared.vegas_enricher._fetch_team_totals``).
+
+    Returns ``{}`` if the input is empty or no team has a valid ``"total"`` key.
+    Parameters are exposed for unit-testing and future calibration.
+    """
+    if not vegas_totals:
+        return {}
+
+    multipliers: dict[str, float] = {}
+    for team, info in vegas_totals.items():
+        raw_total = info.get("total") if "total" in info else info.get("game_total")
+        if raw_total is None:
+            continue
+        game_total = float(raw_total)
+        delta = max(-cap, min(cap, (game_total - league_avg) * sensitivity))
+        multipliers[str(team).upper()] = round(1.0 + delta, 5)
+
+    n_boosted = sum(1 for v in multipliers.values() if v > 1.0)
+    n_reduced = sum(1 for v in multipliers.values() if v < 1.0)
+    log.debug(
+        "Game-total multipliers: boosted=%d  reduced=%d  neutral=%d",
+        n_boosted, n_reduced, len(multipliers) - n_boosted - n_reduced,
+    )
+    return multipliers
