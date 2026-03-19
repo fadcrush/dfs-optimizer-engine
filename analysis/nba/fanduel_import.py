@@ -6,7 +6,7 @@ Imports real FanDuel player data and merges with projections
 import pandas as pd
 from pathlib import Path
 import logging
-from fuzzywuzzy import fuzz
+from rapidfuzz import fuzz, process
 from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -96,36 +96,40 @@ class FanDuelImporter:
         
         return name.strip()
     
-    def _fuzzy_match_name(self, proj_name: str, fd_names: List[str], threshold: int = 85) -> str:
+    def _fuzzy_match_name(
+        self,
+        proj_name: str,
+        fd_names: List[str],
+        threshold: int = 85,
+        *,
+        _norm_to_orig: dict | None = None,
+    ) -> str:
         """
-        Fuzzy match player name
-        
-        Args:
-            proj_name: Name from projections
-            fd_names: List of names from FanDuel
-            threshold: Minimum similarity score (0-100)
-        
-        Returns:
-            Best matching FanDuel name, or empty string if no good match
+        Fuzzy match a player name against a list of FanDuel names.
+
+        Uses rapidfuzz (C++ backend) with score_cutoff pruning for O(n)
+        behaviour rather than the old O(n²) fuzzywuzzy loop.
+
+        Pass ``_norm_to_orig`` (pre-computed by ``merge_with_projections``)
+        to avoid re-normalizing ``fd_names`` on every call.
         """
         proj_normalized = self._normalize_name(proj_name)
-        
-        best_match = ""
-        best_score = 0
-        
-        for fd_name in fd_names:
-            fd_normalized = self._normalize_name(fd_name)
-            
-            # Calculate similarity
-            score = fuzz.ratio(proj_normalized, fd_normalized)
-            
-            if score > best_score and score >= threshold:
-                best_score = score
-                best_match = fd_name
-        
-        if best_match:
-            logger.debug(f"Matched '{proj_name}' to '{best_match}' (score: {best_score})")
-        
+
+        if _norm_to_orig is None:
+            _norm_to_orig = {self._normalize_name(n): n for n in fd_names}
+
+        result = process.extractOne(
+            proj_normalized,
+            list(_norm_to_orig.keys()),
+            scorer=fuzz.ratio,
+            score_cutoff=threshold,
+        )
+        if result is None:
+            return ""
+
+        matched_normalized, score, _ = result
+        best_match = _norm_to_orig[matched_normalized]
+        logger.debug("Matched '%s' to '%s' (score: %d)", proj_name, best_match, score)
         return best_match
     
     def merge_with_projections(
@@ -145,18 +149,48 @@ class FanDuelImporter:
         # Create lookup dict for FanDuel data
         fd_lookup = fanduel_data.set_index('player_name').to_dict('index')
         fd_names = list(fd_lookup.keys())
-        
+
+        # Pre-compute normalized→original mapping ONCE for the whole merge
+        # (avoids re-normalizing all fd_names on every fuzzy call)
+        _norm_to_orig = {self._normalize_name(n): n for n in fd_names}
+
         # Match each projection to FanDuel data
-        matches = []
-        unmatched = []
-        
+        matches: list[dict] = []
+        unmatched: list[str] = []
+
         for _, proj_row in projections.iterrows():
             proj_name = proj_row['player_name']
-            
+
             # Try exact match first
             if proj_name in fd_lookup:
                 fd_match = fd_lookup[proj_name]
                 matched_name = proj_name
             else:
-                # Try fuzzy match
-                matched_name = self._fuzzy_match_name(proj_name, fd_names)
+                # Try fuzzy match using pre-computed normalized map
+                matched_name = self._fuzzy_match_name(
+                    proj_name, fd_names, _norm_to_orig=_norm_to_orig
+                )
+
+            if matched_name and matched_name in fd_lookup:
+                fd_match = fd_lookup[matched_name]
+                row = proj_row.to_dict()
+                row.update({
+                    'dfs_id': fd_match.get('dfs_id', ''),
+                    'salary': fd_match.get('salary', proj_row.get('salary', 0)),
+                    'position': fd_match.get('position', proj_row.get('position', '')),
+                    'team': fd_match.get('team', proj_row.get('team', '')),
+                    'opponent': fd_match.get('opponent', proj_row.get('opponent', '')),
+                })
+                matches.append(row)
+            else:
+                unmatched.append(proj_name)
+                matches.append(proj_row.to_dict())
+
+        if unmatched:
+            logger.warning("%d projection players not matched to FanDuel data: %s",
+                           len(unmatched), unmatched[:10])
+
+        result_df = pd.DataFrame(matches)
+        logger.info("Merged %d projections; %d matched, %d unmatched",
+                    len(result_df), len(matches) - len(unmatched), len(unmatched))
+        return result_df

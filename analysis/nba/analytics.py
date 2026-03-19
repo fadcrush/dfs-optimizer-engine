@@ -82,8 +82,8 @@ class ContestAnalytics:
         df = self.data
         
         total_entries = len(df)
-        cashed = len(df[df['payout'] > df['entry_fee']])
-        profitable = len(df[df['payout'] > df['entry_fee']])
+        cashed = len(df[df['payout'] > 0])          # received any payout
+        profitable = len(df[df['payout'] > df['entry_fee']])  # net profit
         break_even = len(df[df['payout'] == df['entry_fee']])
         
         # Calculate percentiles

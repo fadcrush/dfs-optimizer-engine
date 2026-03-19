@@ -12,7 +12,6 @@ from typing import Optional, Dict, List
 from analysis.shared.api_clients import (
     TheOddsAPIClient,
     NBAFreeDataClient,
-    BallDontLieAPIClient
 )
 from analysis.core.projection_engine import CanonicalNBAProjectionEngine
 
@@ -28,7 +27,6 @@ class NBADataAggregator:
         # Initialize API clients
         self.odds_client = TheOddsAPIClient(os.getenv('THEODDS_API_KEY', ''))
         self.nba_client = NBAFreeDataClient()  # free, no API key — uses nba_api / stats.nba.com
-        self.balldontlie_client = BallDontLieAPIClient()
         
         # Initialize projection engine
         self.projection_engine = CanonicalNBAProjectionEngine()
