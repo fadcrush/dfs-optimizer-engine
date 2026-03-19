@@ -296,6 +296,125 @@ async def run_optimizer(
     return response
 
 
+@router.post("/run-async")
+async def run_optimizer_async(
+    file: UploadFile = File(...),
+    site: str = "FD",
+    sport: str = "NBA",
+    n_lineups: int = 20,
+    n_sims: int = 0,
+    pre_sim: bool = False,
+    pre_sim_sims: int = 300,
+    apply_filter: bool = True,
+    out_players: str = "",
+    out_teams: str = "",
+    contest_type: str = "gpp",
+    entry_fee: float = 3.0,
+    field_size: int = 100,
+    max_exposure: float = 0.60,
+    player_caps: str = "",
+    player_floors: str = "",
+    num_unique: int = 2,
+    chalk_threshold: float = 0.0,
+    projection_overrides: str = "",
+    locked_players: str = "",
+    current_user=Depends(require_plan("pro")),
+):
+    """Submit the optimizer as a Celery background task; returns ``{task_id}``
+    immediately.  Poll ``GET /api/tasks/{task_id}`` for status and the result.
+
+    Falls back with HTTP 503 when the Celery/Redis services are not running —
+    use the synchronous ``POST /run`` endpoint in that case.
+    """
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a CSV")
+
+    user_id = _user_id(current_user)
+    file_info = await save_slate_file(file, user_id=user_id)
+
+    # Build injuries map
+    injuries: dict[str, str] = {}
+    if out_players:
+        for name in out_players.split(","):
+            name = name.strip()
+            if name:
+                injuries[name] = "OUT"
+    if out_teams:
+        faded = {t.strip().upper() for t in out_teams.split(",") if t.strip()}
+        if faded:
+            try:
+                df_slate = pd.read_csv(file_info["file_path"], encoding="utf-8")
+                team_col = next(
+                    (c for c in df_slate.columns if c.lower() in ("teamabbrev", "team_abbrev", "team")),
+                    None,
+                )
+                name_col = next(
+                    (c for c in df_slate.columns if c.lower() in ("name", "player", "nickname", "playername", "player_name")),
+                    None,
+                )
+                if team_col and name_col:
+                    for _, row in df_slate.iterrows():
+                        player_team = str(row.get(team_col, "")).strip().upper()
+                        player_name = str(row.get(name_col, "")).strip()
+                        if player_team in faded and player_name:
+                            if ":" in player_name:
+                                player_name = player_name.split(":", 1)[1].strip()
+                            injuries[player_name] = "OUT"
+            except Exception:
+                pass
+
+    import json
+    try:
+        _proj_overrides = json.loads(projection_overrides) if projection_overrides else {}
+    except (json.JSONDecodeError, ValueError):
+        _proj_overrides = {}
+    try:
+        _caps   = json.loads(player_caps)   if player_caps   else {}
+        _floors = json.loads(player_floors) if player_floors else {}
+    except (json.JSONDecodeError, ValueError):
+        _caps, _floors = {}, {}
+
+    _locks = [n.strip() for n in locked_players.split(",") if n.strip()] if locked_players else []
+
+    task_kwargs = dict(
+        file_path=file_info["file_path"],
+        site=site,
+        sport=sport,
+        n_lineups=n_lineups,
+        n_sims=n_sims,
+        pre_sim=pre_sim,
+        pre_sim_sims=pre_sim_sims,
+        max_exposure=max_exposure,
+        contest_type=contest_type,
+        entry_fee=entry_fee,
+        field_size=field_size,
+        num_unique=num_unique,
+        injuries=injuries,
+        locks=_locks,
+        projection_overrides=_proj_overrides,
+        apply_filter=apply_filter,
+        chalk_threshold=chalk_threshold,
+        player_caps=_caps,
+        player_floors=_floors,
+        file_id=file_info["file_id"],
+        user_id=user_id,
+    )
+
+    try:
+        from backend.tasks.optimizer import run_optimizer_task
+        task = run_optimizer_task.apply_async(kwargs=task_kwargs)
+        return {"task_id": task.id, "status": "queued"}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Background task queue unavailable ({exc}). "
+                "Start the redis + celery_worker Docker services, "
+                "or use POST /api/optimizer/run for synchronous execution."
+            ),
+        )
+
+
 @router.post("/parse-lineup-csv")
 async def parse_lineup_csv(
     entry_file: UploadFile = File(..., description="DK or FD entry CSV exported from this app"),

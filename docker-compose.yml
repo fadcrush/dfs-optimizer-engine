@@ -64,3 +64,54 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+  # ── Redis (Celery broker + result backend) ───────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Celery worker (async optimizer / pipeline tasks) ─────────────────────────
+  celery_worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.backend
+    command: >
+      celery -A backend.celery_app worker
+      --loglevel=info
+      --concurrency=2
+      --queues=celery
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+      - ./backend/uploads:/app/backend/uploads
+      - ./outputs:/app/outputs
+      - ./analysis:/app/analysis
+      - ./backend:/app/backend
+      - ./workers:/app/workers
+      - ./scripts:/app/scripts
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local

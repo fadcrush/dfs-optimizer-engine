@@ -43,6 +43,7 @@ from database.db import init_db, test_connection
 from routers import auth, projections, optimizer, slates, analytics, games, contests, events, injuries, billing
 from routers import admin as admin_router
 from routers.pipeline import router as pipeline_router
+from routers import tasks as tasks_router
 
 def _run_startup_tasks() -> None:
     """Initialize external services and local storage on API startup."""
@@ -156,6 +157,7 @@ app.include_router(injuries.router)
 app.include_router(billing.router)
 app.include_router(pipeline_router)
 app.include_router(admin_router.router)
+app.include_router(tasks_router.router)
 
 @app.get("/")
 async def root():

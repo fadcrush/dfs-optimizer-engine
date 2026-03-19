@@ -192,11 +192,63 @@ def job_ingest_game_logs() -> None:
                         result.returncode, result.stderr.strip()[-500:])
     except Exception as exc:
         log.error("[scheduler] job_ingest_game_logs failed: %s", exc)
+def _upload_backup_to_cloud(local_path: Path) -> None:
+    """Upload a DuckDB backup to S3-compatible cloud storage.
+
+    Environment variables (all optional; cloud upload is disabled by default):
+
+        CLOUD_BACKUP_ENABLED      "true" / "1" / "yes" to activate (default: false)
+        CLOUD_BACKUP_BUCKET       target bucket name (required when enabled)
+        AWS_ACCESS_KEY_ID         key ID (AWS or Backblaze B2 application key ID)
+        AWS_SECRET_ACCESS_KEY     secret (AWS secret key or B2 application key)
+        CLOUD_BACKUP_ENDPOINT_URL custom S3 endpoint for B2 / MinIO / etc.
+                                  e.g. https://s3.us-west-004.backblazeb2.com
+        CLOUD_BACKUP_PREFIX       object key prefix (default: "dfs-edge/backups/")
+    """
+    if os.environ.get("CLOUD_BACKUP_ENABLED", "false").lower() not in ("1", "true", "yes"):
+        return
+
+    bucket = os.environ.get("CLOUD_BACKUP_BUCKET", "")
+    if not bucket:
+        log.warning("[scheduler] CLOUD_BACKUP_BUCKET not set — skipping cloud upload")
+        return
+
+    try:
+        import boto3  # type: ignore[import]
+        from botocore.config import Config  # type: ignore[import]
+
+        endpoint_url = os.environ.get("CLOUD_BACKUP_ENDPOINT_URL") or None
+        prefix = os.environ.get("CLOUD_BACKUP_PREFIX", "dfs-edge/backups/").rstrip("/") + "/"
+        object_key = f"{prefix}{local_path.name}"
+
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+            config=Config(retries={"max_attempts": 3, "mode": "standard"}),
+        )
+        s3.upload_file(str(local_path), bucket, object_key)
+        log.info("[scheduler] Cloud backup uploaded — s3://%s/%s", bucket, object_key)
+    except ImportError:
+        log.warning(
+            "[scheduler] boto3 not installed — cloud backup skipped. "
+            "Run: pip install boto3"
+        )
+    except Exception as exc:
+        log.error(
+            "[scheduler] Cloud backup upload failed for %s: %s",
+            local_path.name, exc,
+        )
+
+
 def job_backup_duckdb() -> None:
     """Copy every *.duckdb in data/ to data/backups/ with a UTC timestamp suffix.
 
     Runs at 04:00 ET nightly (after game-log ingest at 03:00 is complete).
     Keeps backups for 7 days; prunes older files automatically.
+    If CLOUD_BACKUP_ENABLED=true, also uploads each backup to S3-compatible
+    cloud storage (AWS S3, Backblaze B2, etc.).
     """
     import shutil
     from datetime import datetime as _dt
@@ -214,6 +266,7 @@ def job_backup_duckdb() -> None:
         try:
             shutil.copy2(db_file, dest)
             backed_up += 1
+            _upload_backup_to_cloud(dest)
         except Exception as exc:
             log.warning("[scheduler] Backup failed for %s: %s", db_file.name, exc)
 
