@@ -6,23 +6,32 @@ module.exports = {
     extend: {
       colors: {
         surface: {
-          base:    '#0f172a',
-          raised:  '#1e293b',
-          overlay: '#1e2d40',
-          border:  '#334155',
+          base:    'rgb(var(--color-surface-base) / <alpha-value>)',
+          raised:  'rgb(var(--color-surface-raised) / <alpha-value>)',
+          overlay: 'rgb(var(--color-surface-overlay) / <alpha-value>)',
+          border:  'rgb(var(--color-surface-border) / <alpha-value>)',
         },
         primary: {
-          DEFAULT: '#2563eb',
-          hover:   '#1d4ed8',
-          muted:   '#1e3a5f',
+          DEFAULT: 'rgb(var(--color-primary) / <alpha-value>)',
+          hover:   'rgb(var(--color-primary-hover) / <alpha-value>)',
+          muted:   'rgb(var(--color-primary-muted) / <alpha-value>)',
         },
-        success: { DEFAULT: '#22c55e', muted: '#14532d' },
-        warning: { DEFAULT: '#f59e0b', muted: '#451a03' },
-        danger:  { DEFAULT: '#ef4444', muted: '#450a0a' },
+        success: {
+          DEFAULT: 'rgb(var(--color-success) / <alpha-value>)',
+          muted:   'rgb(var(--color-success-muted) / <alpha-value>)',
+        },
+        warning: {
+          DEFAULT: 'rgb(var(--color-warning) / <alpha-value>)',
+          muted:   'rgb(var(--color-warning-muted) / <alpha-value>)',
+        },
+        danger: {
+          DEFAULT: 'rgb(var(--color-danger) / <alpha-value>)',
+          muted:   'rgb(var(--color-danger-muted) / <alpha-value>)',
+        },
         text: {
-          primary:   '#f8fafc',
-          secondary: '#94a3b8',
-          muted:     '#64748b',
+          primary:   'rgb(var(--color-text-primary) / <alpha-value>)',
+          secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
+          muted:     'rgb(var(--color-text-muted) / <alpha-value>)',
         },
       },
       fontFamily: {

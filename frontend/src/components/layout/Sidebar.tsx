@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, Database, BarChart2, Zap, TrendingUp,
   Shuffle, ArrowLeftRight, LineChart, Activity,
-  ChevronLeft, Bell, Moon, Sun, Menu, Search, Settings, LogOut,
+  ChevronLeft, Bell, Moon, Sun, Menu, Search, Settings, LogOut, Shield,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useClock } from '@/hooks/useClock'
@@ -150,6 +150,22 @@ export function Sidebar({
               </Link>
             )
           })}
+          {storedUser?.is_admin && (
+            <Link
+              href="/admin"
+              aria-current={path === '/admin' || path.startsWith('/admin') ? 'page' : undefined}
+              title={collapsed ? 'Admin' : undefined}
+              className={cn(
+                'flex items-center gap-3 mx-2 px-2.5 py-2 rounded-md text-sm font-medium transition-colors duration-100',
+                'hover:bg-surface-raised hover:text-text-primary',
+                path.startsWith('/admin') ? 'bg-primary-muted text-primary' : 'text-text-secondary',
+                collapsed && 'justify-center px-0',
+              )}
+            >
+              <Shield className="w-4 h-4 shrink-0" aria-hidden="true" />
+              {!collapsed && <span>Admin</span>}
+            </Link>
+          )}
         </nav>
 
         {/* Footer: clock + theme + notifications + avatar */}

@@ -46,7 +46,10 @@ class User(Base):
     # Usage stats (for analytics)
     lineups_generated = Column(Integer, default=0)
     slates_processed = Column(Integer, default=0)
-    
+
+    # Admin flag
+    is_admin = Column(Boolean, default=False)
+
     def __repr__(self):
         return f"<User {self.email} - {self.tier}>"
     
@@ -64,5 +67,6 @@ class User(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
             "lineups_generated": self.lineups_generated,
-            "slates_processed": self.slates_processed
+            "slates_processed": self.slates_processed,
+            "is_admin": self.is_admin,
         }

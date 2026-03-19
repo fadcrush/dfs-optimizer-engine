@@ -11,6 +11,7 @@ export type StoredUser = {
   email: string
   full_name?: string | null
   tier?: string
+  is_admin?: boolean
 }
 
 export function getAccessToken(): string | null {

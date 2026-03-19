@@ -9,6 +9,7 @@ export type AuthUser = {
   tier?: string
   subscription_status?: string
   email_verified?: boolean
+  is_admin?: boolean
 }
 
 type AuthResponse = {

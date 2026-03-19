@@ -43,6 +43,7 @@ def _bypass_user() -> dict:
         "tier": "admin",
         "subscription_status": "active",
         "auth_bypassed": True,
+        "is_admin": True,
     }
 
 def hash_password(password: str) -> str:
@@ -190,6 +191,24 @@ def require_plan(min_tier: str = "pro"):
             )
         return current_user
     return _check
+
+
+def require_admin(current_user=Depends(get_current_user)):
+    """FastAPI dependency — requires the authenticated user to have is_admin=True.
+
+    The dev-bypass user (auth disabled) is always treated as admin.
+    """
+    is_admin = (
+        current_user.get("is_admin", False)
+        if isinstance(current_user, dict)
+        else getattr(current_user, "is_admin", False)
+    )
+    if not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required.",
+        )
+    return current_user
 
 
 # ---------------------------------------------------------------------------

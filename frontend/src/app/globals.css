@@ -3,9 +3,62 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  /* ── Design tokens: dark mode (default) ──────────────────────────────── */
+  :root,
+  :root.dark {
     --font-inter: 'Inter', system-ui, sans-serif;
     --font-geist-mono: 'Geist Mono', monospace;
+
+    /* Surface */
+    --color-surface-base:    15 23 42;   /* #0f172a */
+    --color-surface-raised:  30 41 59;   /* #1e293b */
+    --color-surface-overlay: 30 45 64;   /* #1e2d40 */
+    --color-surface-border:  51 65 85;   /* #334155 */
+
+    /* Primary */
+    --color-primary:         37 99 235;  /* #2563eb */
+    --color-primary-hover:   29 78 216;  /* #1d4ed8 */
+    --color-primary-muted:   30 58 95;   /* #1e3a5f */
+
+    /* Semantic */
+    --color-success:         34 197 94;  /* #22c55e */
+    --color-success-muted:   20 83 45;   /* #14532d */
+    --color-warning:        245 158 11;  /* #f59e0b */
+    --color-warning-muted:   69 26 3;    /* #451a03 */
+    --color-danger:         239 68 68;   /* #ef4444 */
+    --color-danger-muted:    69 10 10;   /* #450a0a */
+
+    /* Text */
+    --color-text-primary:   248 250 252; /* #f8fafc */
+    --color-text-secondary: 148 163 184; /* #94a3b8 */
+    --color-text-muted:     100 116 139; /* #64748b */
+  }
+
+  /* ── Design tokens: light mode ───────────────────────────────────────── */
+  :root.light {
+    /* Surface */
+    --color-surface-base:    248 250 252; /* #f8fafc */
+    --color-surface-raised:  255 255 255; /* #ffffff */
+    --color-surface-overlay: 241 245 249; /* #f1f5f9 */
+    --color-surface-border:  226 232 240; /* #e2e8f0 */
+
+    /* Primary — same blue */
+    --color-primary:         37 99 235;
+    --color-primary-hover:   29 78 216;
+    --color-primary-muted:   219 234 254; /* #dbeafe */
+
+    /* Semantic */
+    --color-success:         34 197 94;
+    --color-success-muted:  220 252 231;  /* #dcfce7 */
+    --color-warning:        245 158 11;
+    --color-warning-muted:  254 249 195;  /* #fef9c3 */
+    --color-danger:         239 68 68;
+    --color-danger-muted:   254 226 226;  /* #fee2e2 */
+
+    /* Text */
+    --color-text-primary:    15 23 42;    /* #0f172a */
+    --color-text-secondary:  71 85 105;   /* #475569 */
+    --color-text-muted:     148 163 184;  /* #94a3b8 */
   }
 
   *,
@@ -18,6 +71,10 @@
     color-scheme: dark;
   }
 
+  html.light {
+    color-scheme: light;
+  }
+
   body {
     @apply bg-surface-base text-text-primary font-sans;
     margin: 0;
@@ -25,7 +82,7 @@
 
   /* Global focus-visible ring */
   *:focus-visible {
-    outline: 2px solid theme('colors.primary.DEFAULT');
+    outline: 2px solid rgb(var(--color-primary));
     outline-offset: 2px;
   }
 }
@@ -35,18 +92,18 @@
   .skeleton {
     background: linear-gradient(
       90deg,
-      theme('colors.surface.raised') 25%,
-      theme('colors.surface.overlay') 50%,
-      theme('colors.surface.raised') 75%
+      rgb(var(--color-surface-raised)) 25%,
+      rgb(var(--color-surface-overlay)) 50%,
+      rgb(var(--color-surface-raised)) 75%
     );
     background-size: 200% 100%;
     @apply animate-shimmer rounded;
   }
 
-  /* Scrollbar styling for dark theme */
+  /* Scrollbar styling */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: theme('colors.surface.border') transparent;
+    scrollbar-color: rgb(var(--color-surface-border)) transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
