@@ -199,6 +199,87 @@ def _load_stddev_baseline(
     return result
 
 
+def _load_minutes_trend(
+    db_path: Path = _DEFAULT_DB,
+    recent_games: int = 5,
+    prior_games: int = 5,
+    min_recent: int = 3,
+    min_prior: int = 3,
+    cap: float = 0.10,
+) -> dict[str, float]:
+    """
+    Compute per-player minutes trend ratio: (L5 avg min − L6-10 avg min) / L6-10 avg min.
+
+    Returns a dict keyed by name slug → clamped trend ratio in [-cap, +cap].
+    Players without sufficient history are absent from the dict (caller treats
+    missing slugs as 0.0 — neutral).  Returns an empty dict on any error.
+
+    ``cap`` defaults to 0.10 (±10% max projection adjustment).
+    """
+    try:
+        import duckdb  # noqa: F401 — presence check
+    except ImportError:
+        return {}
+
+    if not db_path.exists():
+        return {}
+
+    try:
+        con = get_conn(db_path)
+        sql = f"""
+            WITH ranked AS (
+                SELECT
+                    player_name,
+                    minutes,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY player_name
+                        ORDER BY game_date DESC
+                    ) AS rn
+                FROM player_game_logs
+                WHERE minutes > 0
+            ),
+            recent AS (
+                SELECT
+                    player_name,
+                    AVG(minutes) AS l_recent_avg
+                FROM ranked
+                WHERE rn <= {recent_games}
+                GROUP BY player_name
+                HAVING COUNT(*) >= {min_recent}
+            ),
+            prior AS (
+                SELECT
+                    player_name,
+                    AVG(minutes) AS l_prior_avg
+                FROM ranked
+                WHERE rn BETWEEN {recent_games + 1} AND {recent_games + prior_games}
+                GROUP BY player_name
+                HAVING COUNT(*) >= {min_prior}
+            )
+            SELECT
+                r.player_name,
+                ROUND(
+                    (r.l_recent_avg - p.l_prior_avg) / NULLIF(p.l_prior_avg, 0),
+                    4
+                ) AS trend_ratio
+            FROM recent r
+            JOIN prior p ON r.player_name = p.player_name
+        """
+        rows = con.execute(sql).fetchall()
+    except Exception as exc:
+        log.warning("Minutes trend query failed: %s", exc)
+        return {}
+
+    result: dict[str, float] = {}
+    for player_name, trend_ratio in rows:
+        if trend_ratio is not None:
+            clamped = max(-cap, min(cap, float(trend_ratio)))
+            result[_slugify(player_name)] = round(clamped, 4)
+
+    log.debug("Minutes trend loaded: %d players", len(result))
+    return result
+
+
 class ProjectionEngine(Protocol):
     def generate(self, slate_df: pd.DataFrame, context: ProjectionContext) -> pd.DataFrame:
         ...
@@ -236,6 +317,7 @@ class CanonicalNBAProjectionEngine:
     dvp_enabled: bool = True            # set False to disable DvP for clean A/B testing
     b2b_enabled: bool = True            # set False to disable B2B/rest-days for A/B testing
     blowout_enabled: bool = True        # set False to disable blowout risk for A/B testing
+    minutes_trend_enabled: bool = True  # set False to disable minutes-trend layer
     ownership_enabled: bool = True      # set False to skip ownership estimation
     contest_type: str = "gpp"          # "gpp" | "cash" | "double_up" | "winner_take_all"
 
@@ -257,6 +339,11 @@ class CanonicalNBAProjectionEngine:
         stddev_baseline = _load_stddev_baseline(
             context.site, self.gl_db_path, self.stddev_lookback, self.stddev_min_games
         )
+
+        # Load minutes-trend baseline (fails gracefully to empty dict → neutral 0.0)
+        mt_baseline: dict[str, float] = {}
+        if self.minutes_trend_enabled:
+            mt_baseline = _load_minutes_trend(self.gl_db_path)
 
         # Load Defense-vs-Player table (fails gracefully to empty dict → neutral)
         dvp_table: dict[str, float] = {}
@@ -390,6 +477,22 @@ class CanonicalNBAProjectionEngine:
         else:
             df["Blowout"] = 1.0
 
+        # ── Layer 7: Minutes trend adjustment ──────────────────────────────────────
+        # Signals role expansion (positive) or contraction (negative) based on the
+        # difference between a player's L5 avg minutes and their L6-10 avg minutes.
+        # Trend ratio is clamped to ±10% (cap set in _load_minutes_trend).
+        name_col_mt = next((c for c in ["Name", "name"] if c in df.columns), None)
+        if self.minutes_trend_enabled and mt_baseline and name_col_mt:
+            mt_series = df[name_col_mt].map(
+                lambda n: mt_baseline.get(_slugify(str(n)), 0.0)
+            )
+            df["MinutesTrend"] = mt_series.round(4)
+            df["Proj"] = (df["Proj"] * (1.0 + mt_series)).round(4)
+            n_mt = int((mt_series != 0.0).sum())
+            log.info("Minutes trend applied to %d/%d players", n_mt, len(df))
+        else:
+            df["MinutesTrend"] = 0.0
+
         # ── Per-player variance model ──────────────────────────────────────────
         # Prefer individual CV from rolling game logs; fall back to position CV.
         # StdDev = Proj × CV
@@ -458,7 +561,7 @@ class CanonicalNBAProjectionEngine:
         )
 
         out_cols = ["DFS_ID", "Raw_DFS_ID", "Name", "Team", "Opp", "Pos", "Salary",
-                    "Proj", "GL_L10", "DvP", "Rest", "Blowout",
+                    "Proj", "GL_L10", "DvP", "Rest", "Blowout", "MinutesTrend",
                     "StdDev", "Floor", "Ceiling",
                     "Own", "Own_Est", "own_source", "Leverage",
                     "Value", "InjuryStatus"]
