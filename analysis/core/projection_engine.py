@@ -11,6 +11,7 @@ import pandas as pd
 from analysis.shared.scoring import score_nba_row
 from analysis.nba.dvp import load_dvp_table, load_dvp_by_position
 from analysis.nba.b2b import get_rest_multipliers, get_blowout_multipliers
+from analysis.nba.ownership_v2 import predict_ownership
 from analysis.shared.db import get_conn
 
 from .schemas import ProjectionContext
@@ -235,6 +236,8 @@ class CanonicalNBAProjectionEngine:
     dvp_enabled: bool = True            # set False to disable DvP for clean A/B testing
     b2b_enabled: bool = True            # set False to disable B2B/rest-days for A/B testing
     blowout_enabled: bool = True        # set False to disable blowout risk for A/B testing
+    ownership_enabled: bool = True      # set False to skip ownership estimation
+    contest_type: str = "gpp"          # "gpp" | "cash" | "double_up" | "winner_take_all"
 
     def generate(self, slate_df: pd.DataFrame, context: ProjectionContext) -> pd.DataFrame:
         if context.sport != "NBA":
@@ -412,6 +415,34 @@ class CanonicalNBAProjectionEngine:
         df["Ceiling"] = (df["Proj"] + 1.5 * df["StdDev"]).round(4)
         df["Value"] = (df["Proj"] / (df["Salary"] / 1000.0).replace(0, pd.NA)).fillna(0.0)
 
+        # ── Ownership estimation ──────────────────────────────────────────────
+        # Uses calibrated GBR model when available; falls back to percentile-rank
+        # heuristic.  Populates Own, Own_Est, own_source.
+        if self.ownership_enabled:
+            try:
+                df = predict_ownership(
+                    df,
+                    sport="NBA",
+                    site=context.site,
+                    contest_type=self.contest_type,
+                )
+            except Exception as exc:
+                log.warning("Ownership prediction failed: %s", exc)
+                if "Own" not in df.columns:
+                    df["Own"] = 0.0
+                df["own_source"] = "error"
+        else:
+            if "Own" not in df.columns:
+                df["Own"] = 0.0
+            df["own_source"] = "disabled"
+
+        # ── Leverage score (§6.3) ─────────────────────────────────────────────
+        # Leverage = Proj / max(Own, 0.5)
+        # High projection + low ownership = high leverage (contrarian GPP edge).
+        # Capped at 30 to prevent division blow-up on near-zero ownership players.
+        safe_own = df["Own"].clip(lower=0.5)
+        df["Leverage"] = (df["Proj"] / safe_own).round(3).clip(upper=30.0)
+
         n_individual_cv = sum(
             1 for _, row in df.iterrows()
             if _slugify(str(row.get("Name", ""))) in stddev_baseline
@@ -428,6 +459,7 @@ class CanonicalNBAProjectionEngine:
 
         out_cols = ["DFS_ID", "Raw_DFS_ID", "Name", "Team", "Opp", "Pos", "Salary",
                     "Proj", "GL_L10", "DvP", "Rest", "Blowout",
-                    "StdDev", "Floor", "Ceiling", "Own", "Value",
-                    "InjuryStatus"]
+                    "StdDev", "Floor", "Ceiling",
+                    "Own", "Own_Est", "own_source", "Leverage",
+                    "Value", "InjuryStatus"]
         return df[[c for c in out_cols if c in df.columns]]
