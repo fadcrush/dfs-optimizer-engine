@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 
-WEATHER_API_KEY = os.getenv("a28c1db7a46f42089d012818252711")
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 OUT_DIR = ROOT / "data" / "nfl" / "raw" / "weather"
 OUT_DIR.mkdir(parents=True, exist_ok=True)

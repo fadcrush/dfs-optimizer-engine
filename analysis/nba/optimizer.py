@@ -250,8 +250,11 @@ def optimize_portfolio(
         if low in name_to_id:
             locked_ids.add(name_to_id[low])
 
-    # Eligibility lookup
-    elig = {pid: _eligibility_set(df.loc[df["DFS_ID"] == pid, "Pos"].values[0]) for pid in ids}
+    # Eligibility lookup — O(n) vs O(n²) df.loc scan
+    elig = {
+        pid: _eligibility_set(pos)
+        for pid, pos in zip(df["DFS_ID"].tolist(), df["Pos"].astype(str).tolist())
+    }
     slot_names: list[str] = []
     for slot_name, req in slots.items():
         for n in range(req):
@@ -265,13 +268,17 @@ def optimize_portfolio(
     max_count_for = {pid: _caps.get(pid, global_max_count) for pid in ids}
     floor_remaining = {pid: cnt for pid, cnt in _floors.items() if pid in ids}
 
-    # Game/team sets for stacking
+    # Game/team sets for stacking — pre-built O(1) dicts avoid O(n²) per-player df scans
+    _pid_to_game_id = dict(zip(df["DFS_ID"].tolist(), df["game_id"].astype(str).tolist()))
+    _pid_to_team = (
+        dict(zip(df["DFS_ID"].tolist(), df[team_col].astype(str).str.strip().tolist()))
+        if team_col else {}
+    )
     games: dict[str, list[str]] = {}
     teams: dict[str, list[str]] = {}
     for pid in ids:
-        row = df[df["DFS_ID"] == pid].iloc[0]
-        gid = str(row.get("game_id", "unknown"))
-        team = str(row.get(team_col or "Team", "UNK")).strip() if team_col else "UNK"
+        gid = _pid_to_game_id.get(pid, "unknown")
+        team = _pid_to_team.get(pid, "UNK") if team_col else "UNK"
         games.setdefault(gid, []).append(pid)
         teams.setdefault(team, []).append(pid)
 
@@ -285,9 +292,7 @@ def optimize_portfolio(
     # (avoids expensive df lookups inside the per-lineup loop)
     _player_to_team: dict[str, str] = {}
     if team_col:
-        for pid in ids:
-            _row = df[df["DFS_ID"] == pid].iloc[0]
-            _player_to_team[pid] = str(_row.get(team_col, "UNK")).strip()
+        _player_to_team = dict(zip(df["DFS_ID"].tolist(), df[team_col].astype(str).str.strip().tolist()))
     game_team_players: dict[str, dict[str, list[str]]] = {}
     for _gid, _pids in games.items():
         _tmap: dict[str, list[str]] = {}
@@ -295,6 +300,12 @@ def optimize_portfolio(
             _t = _player_to_team.get(_p, "UNK")
             _tmap.setdefault(_t, []).append(_p)
         game_team_players[_gid] = _tmap
+
+    # Pre-build O(1) value lookup dicts — eliminates O(n²) df.loc scans inside the
+    # per-lineup loop (150 lineups × N players × 3 columns = significant speedup).
+    proj_lookup: dict[str, float] = dict(zip(df["DFS_ID"].tolist(), df["Proj"].astype(float).tolist()))
+    salary_lookup: dict[str, float] = dict(zip(df["DFS_ID"].tolist(), df["Salary"].astype(float).tolist()))
+    bonus_lookup: dict[str, float] = dict(zip(df["DFS_ID"].tolist(), df[obj_bonus_col].astype(float).tolist()))
 
     portfolio_rows = []
     previous_lineups = []
@@ -311,18 +322,12 @@ def optimize_portfolio(
 
         # Objective
         prob += lpSum(
-            x[pid] * (
-                float(df.loc[df["DFS_ID"] == pid, "Proj"].values[0]) +
-                leverage_weight * float(df.loc[df["DFS_ID"] == pid, obj_bonus_col].values[0])
-            )
+            x[pid] * (proj_lookup[pid] + leverage_weight * bonus_lookup[pid])
             for pid in ids
         )
 
         # Salary cap
-        prob += lpSum(
-            x[pid] * float(df.loc[df["DFS_ID"] == pid, "Salary"].values[0])
-            for pid in ids
-        ) <= salary_cap
+        prob += lpSum(x[pid] * salary_lookup[pid] for pid in ids) <= salary_cap
 
         # Roster size
         prob += lpSum(x[pid] for pid in ids) == roster_size

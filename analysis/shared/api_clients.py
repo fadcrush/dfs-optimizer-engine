@@ -77,7 +77,7 @@ class TheOddsAPIClient(BaseAPIClient):
                 'commence_time': game.get('commence_time'),
                 'home_team': game.get('home_team'),
                 'away_team': game.get('away_team'),
-                'odds': self._parse_bookmaker_odds(game.get('bookmakers', []))
+                'odds': self._parse_bookmaker_odds(game.get('bookmakers', []), game.get('home_team'))
             }
             games.append(game_info)
         
@@ -173,7 +173,7 @@ class TheOddsAPIClient(BaseAPIClient):
         )
         return props
     
-    def _parse_bookmaker_odds(self, bookmakers: List[Dict]) -> Dict:
+    def _parse_bookmaker_odds(self, bookmakers: List[Dict], home_team: Optional[str] = None) -> Dict:
         """Parse bookmaker odds to get consensus lines"""
         if not bookmakers:
             return {}
@@ -194,7 +194,7 @@ class TheOddsAPIClient(BaseAPIClient):
             
             if market_key == 'spreads':
                 for outcome in outcomes:
-                    if outcome.get('name') == book.get('home_team'):
+                    if outcome.get('name') == home_team:
                         odds_data['spread'] = outcome.get('point')
             
             elif market_key == 'totals':
@@ -203,7 +203,7 @@ class TheOddsAPIClient(BaseAPIClient):
             
             elif market_key == 'h2h':
                 for outcome in outcomes:
-                    if outcome.get('name') == book.get('home_team'):
+                    if outcome.get('name') == home_team:
                         odds_data['moneyline_home'] = outcome.get('price')
                     else:
                         odds_data['moneyline_away'] = outcome.get('price')
