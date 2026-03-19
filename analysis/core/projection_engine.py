@@ -10,6 +10,7 @@ import pandas as pd
 
 from analysis.shared.scoring import score_nba_row
 from analysis.nba.dvp import load_dvp_table
+from analysis.nba.b2b import get_rest_multipliers, get_blowout_multipliers
 from analysis.shared.db import get_conn
 
 from .schemas import ProjectionContext
@@ -124,6 +125,8 @@ class CanonicalNBAProjectionEngine:
     gl_db_path: Path = field(default_factory=lambda: _DEFAULT_DB)
     dvp_lookback_days: int = 30  # days of game logs used for DvP calculation
     dvp_enabled: bool = True      # set False to disable DvP for clean A/B testing
+    b2b_enabled: bool = True      # set False to disable B2B/rest-days for A/B testing
+    blowout_enabled: bool = True  # set False to disable blowout risk for A/B testing
 
     def generate(self, slate_df: pd.DataFrame, context: ProjectionContext) -> pd.DataFrame:
         if context.sport != "NBA":
@@ -190,6 +193,61 @@ class CanonicalNBAProjectionEngine:
         else:
             df["DvP"] = 1.0
 
+        # ── Layer 5: B2B / rest-days adjustment ───────────────────────────────
+        # Look up each player's Team in the rest-days table and apply a fatigue
+        # or freshness multiplier.  Neutral (1.0) for any team not in the table.
+        team_col = next((c for c in ["Team", "team", "TEAM"] if c in df.columns), None)
+        if self.b2b_enabled and team_col:
+            rest_mults = get_rest_multipliers(
+                slate_date=context.slate_date,
+                db_path=self.gl_db_path,
+            )
+            if rest_mults:
+                rest_series = df[team_col].map(
+                    lambda t: rest_mults.get(str(t).strip().upper(), 1.0)
+                )
+                df["Rest"] = rest_series.round(4)
+                df["Proj"] = (df["Proj"] * rest_series).round(4)
+                n_rest_applied = int((rest_series != 1.0).sum())
+                log.info("Rest-days applied to %d/%d players", n_rest_applied, len(df))
+            else:
+                df["Rest"] = 1.0
+        else:
+            df["Rest"] = 1.0
+
+        # ── Layer 6: Blowout risk adjustment ──────────────────────────────────
+        # Apply a spread-based penalty for heavy underdogs.  Uses Vegas data
+        # from context.vegas if available, otherwise falls back to a live fetch
+        # via TheOddsAPIClient (gracefully returns {} when no API key is set).
+        if self.blowout_enabled and team_col:
+            # Prefer pre-fetched Vegas data from the request context
+            vegas_totals: dict[str, dict] = {}
+            if context.vegas and all(
+                isinstance(v, dict) and "spread" in v
+                for v in context.vegas.values()
+            ):
+                vegas_totals = context.vegas  # type: ignore[assignment]
+            else:
+                try:
+                    from analysis.shared.vegas_enricher import _fetch_team_totals  # noqa: PLC0415
+                    vegas_totals = _fetch_team_totals("NBA")
+                except Exception as exc:
+                    log.debug("Blowout: Vegas fetch failed: %s", exc)
+
+            blowout_mults = get_blowout_multipliers(vegas_totals)
+            if blowout_mults:
+                blowout_series = df[team_col].map(
+                    lambda t: blowout_mults.get(str(t).strip().upper(), 1.0)
+                )
+                df["Blowout"] = blowout_series.round(4)
+                df["Proj"] = (df["Proj"] * blowout_series).round(4)
+                n_blowout_applied = int((blowout_series != 1.0).sum())
+                log.info("Blowout risk applied to %d/%d players", n_blowout_applied, len(df))
+            else:
+                df["Blowout"] = 1.0
+        else:
+            df["Blowout"] = 1.0
+
         df["Floor"] = (df["Proj"] * (1.0 - self.variance_pct)).clip(lower=0)
         df["Ceiling"] = df["Proj"] * (1.0 + self.variance_pct * 1.5)
         df["Value"] = (df["Proj"] / (df["Salary"] / 1000.0).replace(0, pd.NA)).fillna(0.0)
@@ -203,6 +261,7 @@ class CanonicalNBAProjectionEngine:
         )
 
         out_cols = ["DFS_ID", "Raw_DFS_ID", "Name", "Team", "Opp", "Pos", "Salary",
-                    "Proj", "GL_L10", "DvP", "Floor", "Ceiling", "Own", "Value",
+                    "Proj", "GL_L10", "DvP", "Rest", "Blowout",
+                    "Floor", "Ceiling", "Own", "Value",
                     "InjuryStatus"]
         return df[[c for c in out_cols if c in df.columns]]
