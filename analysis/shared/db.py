@@ -133,6 +133,20 @@ _MIGRATIONS: dict[str, list[tuple[int, str, str | _MigrationFn]]] = {
             );
             """,
         ),
+        (
+            7,
+            "player_positions table for position-specific DvP",
+            """
+            CREATE TABLE IF NOT EXISTS player_positions (
+                player_slug  VARCHAR  NOT NULL,
+                player_name  VARCHAR,
+                position     VARCHAR  NOT NULL,
+                site         VARCHAR  NOT NULL,
+                updated_at   TIMESTAMPTZ DEFAULT now(),
+                PRIMARY KEY (player_slug, site)
+            );
+            """,
+        ),
     ],
 
     # ------------------------------------------------------------------ #

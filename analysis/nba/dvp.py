@@ -135,3 +135,147 @@ def load_dvp_table(
         min(dvp, key=dvp.get, default="-"),
     )
     return dvp
+
+
+def load_dvp_by_position(
+    site: str = "DK",
+    db_path: Path | str | None = None,
+    game_logs_db_path: Path | str | None = None,
+    lookback_days: int = 30,
+    min_games: int = 5,
+    max_adj: float = 0.12,
+) -> dict[str, dict[str, float]]:
+    """Return position-specific DvP multipliers.
+
+    Joins ``player_game_logs`` (actuals) with ``player_positions`` (positions
+    snapshotted from previous slates) to compute how many fantasy points each
+    opponent team allows **per position**.  This is more accurate than the
+    team-level average returned by :func:`load_dvp_table` because a team may
+    be elite at defending point guards but porous against centres.
+
+    Args:
+        site:              ``"DK"`` or ``"FD"`` — which fantasy scoring.
+        db_path:           Path to ``dfs_edge.duckdb`` (contains
+                           ``player_positions`` and projection tables).
+        game_logs_db_path: Path to the DuckDB file that holds
+                           ``player_game_logs``.  Defaults to *db_path* when
+                           ``None`` (useful for tests).
+        lookback_days:     Window of game history to use.
+        min_games:         Minimum player-games per (team, position) bucket.
+        max_adj:           Max multiplier deviation from 1.0 (default ±12 %).
+
+    Returns:
+        Nested dict ``{position: {team: multiplier}}``, e.g.::
+
+            {
+                "PG": {"BOS": 0.91, "MIA": 1.08, ...},
+                "SF": {"BOS": 1.04, "MIA": 0.95, ...},
+                ...
+            }
+
+        Any (position, team) pair that doesn't have enough data is **absent**
+        from the inner dict — callers should fall back to the team-level
+        multiplier from :func:`load_dvp_table` or 1.0.
+    """
+    resolved_db = Path(db_path) if db_path else _DEFAULT_DB
+
+    if not resolved_db.exists():
+        log.warning("DvP by position: DB not found at %s — returning empty", resolved_db)
+        return {}
+
+    # Determine where player_game_logs lives
+    gl_db = Path(game_logs_db_path) if game_logs_db_path else resolved_db
+
+    pts_col = "dk_pts" if site.upper() == "DK" else "fd_pts"
+
+    try:
+        con = get_conn(resolved_db)
+
+        # ATTACH the game-logs DB as read-only if it's a different file
+        if gl_db != resolved_db:
+            gl_alias = "_pos_gl_db"
+            con.execute(
+                f"ATTACH IF NOT EXISTS '{str(gl_db).replace(chr(92), '/')}'"
+                f" AS {gl_alias} (READ_ONLY)"
+            )
+            gl_ref = f"{gl_alias}.player_game_logs"
+        else:
+            gl_ref = "player_game_logs"
+
+        sql = f"""
+            WITH recent_logs AS (
+                SELECT
+                    g.player_name,
+                    g.opponent      AS team,
+                    g.{pts_col}     AS pts
+                FROM {gl_ref} g
+                WHERE g.minutes > 0
+                  AND g.game_date >= CURRENT_DATE - INTERVAL '{lookback_days}' DAY
+            ),
+            positioned AS (
+                SELECT
+                    r.team,
+                    pp.position,
+                    r.pts
+                FROM recent_logs r
+                JOIN player_positions pp
+                  ON pp.player_name = r.player_name
+                 AND pp.site        = '{site.upper()}'
+            ),
+            team_pos_avg AS (
+                SELECT
+                    team,
+                    position,
+                    ROUND(AVG(pts), 4)  AS avg_allowed,
+                    COUNT(*)            AS n_games
+                FROM positioned
+                GROUP BY team, position
+                HAVING COUNT(*) >= {min_games}
+            ),
+            pos_league_avg AS (
+                SELECT
+                    position,
+                    ROUND(AVG(pts), 4) AS league_pos_avg
+                FROM positioned
+                GROUP BY position
+            )
+            SELECT
+                t.team,
+                t.position,
+                t.avg_allowed,
+                p.league_pos_avg,
+                ROUND(t.avg_allowed / NULLIF(p.league_pos_avg, 0), 6) AS raw_mult
+            FROM team_pos_avg t
+            JOIN pos_league_avg p USING (position)
+            ORDER BY t.position, raw_mult DESC
+        """
+
+        rows = con.execute(sql).fetchall()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("DvP by position query failed: %s", exc)
+        return {}
+
+    if not rows:
+        log.info(
+            "DvP by position: no rows (too few games or missing player_positions data)"
+        )
+        return {}
+
+    result: dict[str, dict[str, float]] = {}
+    for team, pos, avg_allowed, league_pos_avg, raw_mult in rows:
+        if raw_mult is None or league_pos_avg is None or league_pos_avg == 0:
+            continue
+        clamped = round(
+            max(1.0 - max_adj, min(1.0 + max_adj, float(raw_mult))), 4
+        )
+        result.setdefault(pos, {})[team] = clamped
+
+    n_buckets = sum(len(v) for v in result.values())
+    log.info(
+        "DvP by position loaded: %d positions × %d team buckets | site=%s | L%dd",
+        len(result),
+        n_buckets,
+        site,
+        lookback_days,
+    )
+    return result

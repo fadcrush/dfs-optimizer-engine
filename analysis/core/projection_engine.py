@@ -9,7 +9,7 @@ from typing import Protocol
 import pandas as pd
 
 from analysis.shared.scoring import score_nba_row
-from analysis.nba.dvp import load_dvp_table
+from analysis.nba.dvp import load_dvp_table, load_dvp_by_position
 from analysis.nba.b2b import get_rest_multipliers, get_blowout_multipliers
 from analysis.shared.db import get_conn
 
@@ -257,10 +257,18 @@ class CanonicalNBAProjectionEngine:
 
         # Load Defense-vs-Player table (fails gracefully to empty dict → neutral)
         dvp_table: dict[str, float] = {}
+        pos_dvp_table: dict[str, dict[str, float]] = {}
         if self.dvp_enabled:
             dvp_table = load_dvp_table(
                 site=context.site,
                 db_path=self.gl_db_path,
+                lookback_days=self.dvp_lookback_days,
+            )
+            # Position-specific DvP uses the same DB for player_positions
+            pos_dvp_table = load_dvp_by_position(
+                site=context.site,
+                db_path=self.gl_db_path,
+                game_logs_db_path=None,  # same DB as team-level; falls back gracefully
                 lookback_days=self.dvp_lookback_days,
             )
 
@@ -294,11 +302,29 @@ class CanonicalNBAProjectionEngine:
         df["GL_L10"] = pd.Series(gl_l10_values, index=df.index, dtype=float)
 
         # ── Layer 4: Defense-vs-Player adjustment ─────────────────────────────
-        # Look up each player's Opp (opponent team) in the DvP table and apply
-        # the multiplier to their projection.  Neutral (1.0) if no data.
+        # Use position-specific DvP when available (more granular); fall back
+        # to team-level DvP, then neutral (1.0) when no data exists.
         opp_col = next((c for c in ["Opp", "opp", "Opponent"] if c in df.columns), None)
+        pos_col_dvp = next((c for c in ["Position", "Pos", "position"] if c in df.columns), None)
         if dvp_table and opp_col:
-            dvp_multipliers = df[opp_col].map(lambda t: dvp_table.get(str(t).strip(), 1.0))
+            if pos_dvp_table and pos_col_dvp:
+                # Per-player: look up (position, opponent) → position-specific mult
+                # Fall back to team-level if no position bucket, then 1.0
+                def _pos_dvp_mult(row: pd.Series) -> float:
+                    team = str(row[opp_col]).strip()
+                    pos  = str(row[pos_col_dvp]).strip()
+                    pos_dict = pos_dvp_table.get(pos, {})
+                    return pos_dict.get(team, dvp_table.get(team, 1.0))
+
+                dvp_multipliers = df.apply(_pos_dvp_mult, axis=1)
+                log.info("Position-specific DvP applied")
+            else:
+                # Fall back to team-level DvP for all players
+                dvp_multipliers = df[opp_col].map(
+                    lambda t: dvp_table.get(str(t).strip(), 1.0)
+                )
+                log.info("Team-level DvP applied (no position data)")
+
             df["DvP"] = dvp_multipliers.round(4)
             df["Proj"] = (df["Proj"] * dvp_multipliers).round(4)
             n_dvp_applied = int((dvp_multipliers != 1.0).sum())

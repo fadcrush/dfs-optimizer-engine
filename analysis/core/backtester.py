@@ -155,6 +155,16 @@ class ProjectionBacktester:
         df["_sal"]   = pd.to_numeric(df["Salary"],  errors="coerce").fillna(0).astype(int) \
                        if "Salary"  in df.columns else 0
 
+        # Capture position if the player pool CSV provides it
+        pos_col = next(
+            (c for c in ["Position", "position", "Pos", "pos"] if c in df.columns),
+            None,
+        )
+        if pos_col:
+            df["_pos"] = df[pos_col].astype(str).str.strip()
+        else:
+            df["_pos"] = None
+
         con = get_conn(self.db_path)
         count = 0
         for _, row in df.iterrows():
@@ -182,6 +192,24 @@ class ProjectionBacktester:
                     int(row["_sal"]),
                 ],
             )
+
+            # Upsert position into player_positions so DvP can use it
+            if row["_pos"] is not None and str(row["_pos"]) not in ("None", "nan", ""):
+                try:
+                    con.execute(
+                        """
+                        INSERT INTO player_positions (player_slug, player_name, position, site)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT (player_slug, site) DO UPDATE SET
+                            player_name = excluded.player_name,
+                            position    = excluded.position,
+                            updated_at  = now()
+                        """,
+                        [row["_slug"], row["_name"], str(row["_pos"]), site.upper()],
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("Could not upsert player_positions for %s: %s", row["_name"], exc)
+
             count += 1
 
         log.info(
