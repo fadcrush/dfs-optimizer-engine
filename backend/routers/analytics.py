@@ -168,14 +168,19 @@ async def reconcile(body: ReconcileRequest, current_user=Depends(get_current_use
 
 @router.get("/health")
 async def analytics_health():
-    """Quick connectivity check — verifies the analytics DuckDB is accessible."""
+    """Quick connectivity check — verifies the analytics Postgres tables are accessible."""
     try:
-        from services.analytics_service import _master
-        con = _master()
-        tables = [r[0] for r in con.execute("SHOW TABLES").fetchall()]
+        from database.db import engine
+        from sqlalchemy import text, inspect
+        if engine is None:
+            raise RuntimeError("DATABASE_URL not configured")
+        insp = inspect(engine)
+        tables = insp.get_table_names()
+        analytics_tables = [t for t in tables if t in ("contest_results", "projection_log", "ownership_actuals")]
         return {
             "status": "ok",
-            "tables": tables,
+            "backend": "postgres",
+            "tables": analytics_tables,
         }
     except Exception as exc:
         raise HTTPException(

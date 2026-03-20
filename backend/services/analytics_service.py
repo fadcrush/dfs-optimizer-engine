@@ -3,29 +3,30 @@ Analytics Service
 =================
 Bridges the analysis layer analytics with the backend API.
 
-Data is stored in ``data/dfs_master.duckdb``:
+User-facing tables (contest_results, projection_log, ownership_actuals) live
+in **Postgres** alongside the ``users`` table — migrated from dfs_master.duckdb
+so every transactional write shares the same DB, enabling proper foreign keys,
+multi-worker safety, and real ACID guarantees.
 
-  contest_results   — one row per contest entry (for ROI tracking)
-  projection_log    — one row per player-slate projection (accuracy tracking)
-
-Actuals come from ``data/dfs_edge.duckdb::player_game_logs``
-(written by scripts/ingest_game_logs.py).
+Read-only reference data (game logs, DvP) still lives in DuckDB
+(``data/dfs_edge.duckdb``).
 """
 
 from __future__ import annotations
 
 import logging
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
+from sqlalchemy import and_, func, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 log = logging.getLogger(__name__)
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
-_MASTER_DB = _ROOT / "data" / "dfs_master.duckdb"
 _EDGE_DB = _ROOT / "data" / "dfs_edge.duckdb"
 
 # Ensure the analysis package is importable from the backend service
@@ -40,14 +41,24 @@ except ImportError:
         return _duckdb_mod.connect(str(path), read_only=read_only)
 
 
-def _master(read_only: bool = False):
-    """Return the per-process singleton connection to dfs_master.duckdb."""
-    return _get_conn(_MASTER_DB, db_key="dfs_master", read_only=read_only)
-
-
 def _edge():
     """Return the per-process read-only singleton for dfs_edge.duckdb."""
     return _get_conn(_EDGE_DB, db_key="dfs_edge", read_only=True)
+
+
+# Import Postgres session factory — may be None if DATABASE_URL is unset.
+from database.db import SessionLocal, engine
+from models.analytics import ContestResult, ProjectionLog, OwnershipActual
+
+
+def _pg_session():
+    """Create a new Postgres session. Caller must close it."""
+    if SessionLocal is None:
+        raise RuntimeError(
+            "DATABASE_URL not configured — analytics tables require Postgres. "
+            "Set DATABASE_URL in .env to enable."
+        )
+    return SessionLocal()
 
 
 # ---------------------------------------------------------------------------
@@ -55,72 +66,19 @@ def _edge():
 # ---------------------------------------------------------------------------
 
 def init_analytics_tables() -> None:
-    """Create analytics tables in dfs_master.duckdb if they don't exist."""
+    """Create analytics tables in Postgres if they don't exist.
+
+    Uses the same ``Base.metadata`` as the User model so ``create_all``
+    picks up ContestResult, ProjectionLog, OwnershipActual.
+    """
+    if engine is None:
+        log.warning("analytics table init skipped — DATABASE_URL not set.")
+        return
     try:
-        con = _master()
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS contest_results (
-                id            INTEGER PRIMARY KEY,
-                contest_date  DATE    NOT NULL,
-                contest_type  VARCHAR NOT NULL,
-                site          VARCHAR NOT NULL,
-                entry_fee     DOUBLE  NOT NULL,
-                payout        DOUBLE  NOT NULL DEFAULT 0.0,
-                final_rank    INTEGER,
-                total_entries INTEGER,
-                lineup_proj   DOUBLE,
-                lineup_actual DOUBLE,
-                notes         VARCHAR DEFAULT '',
-                user_id       VARCHAR DEFAULT '',
-                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS projection_log (
-                id            INTEGER PRIMARY KEY,
-                slate_date    DATE    NOT NULL,
-                site          VARCHAR NOT NULL,
-                player_id     VARCHAR NOT NULL,
-                player_name   VARCHAR NOT NULL,
-                salary        INTEGER,
-                proj          DOUBLE  NOT NULL,
-                floor         DOUBLE,
-                ceiling       DOUBLE,
-                ownership     DOUBLE,
-                actual_pts    DOUBLE,
-                reconciled    BOOLEAN DEFAULT FALSE,
-                user_id       VARCHAR DEFAULT '',
-                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # Ownership actuals table — populated by importing DK/FD contest result CSVs
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS ownership_actuals (
-                id             INTEGER PRIMARY KEY,
-                game_date      DATE    NOT NULL,
-                site           VARCHAR NOT NULL,
-                player_name    VARCHAR NOT NULL,
-                actual_own_pct DOUBLE  NOT NULL,
-                predicted_own  DOUBLE,
-                own_source     VARCHAR DEFAULT 'fallback',
-                salary         INTEGER,
-                proj           DOUBLE,
-                contest_type   VARCHAR DEFAULT 'gpp',
-                slate_id       VARCHAR DEFAULT '',
-                user_id        VARCHAR DEFAULT '',
-                created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (game_date, site, player_name, slate_id)
-            )
-        """)
-        con.execute("CREATE SEQUENCE IF NOT EXISTS contest_results_id_seq START 1")
-        con.execute("CREATE SEQUENCE IF NOT EXISTS projection_log_id_seq START 1")
-        con.execute("CREATE SEQUENCE IF NOT EXISTS ownership_actuals_id_seq START 1")
-        # Idempotent: backfill user_id on tables created before this migration
-        for _tbl in ("contest_results", "projection_log", "ownership_actuals"):
-            try:
-                con.execute(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS user_id VARCHAR DEFAULT ''")
-            except Exception:
-                pass
+        from models.analytics import ContestResult, ProjectionLog, OwnershipActual  # noqa: F811
+        from models.user import Base
+        Base.metadata.create_all(bind=engine)
+        log.info("[analytics] Postgres tables ready.")
     except Exception as exc:
         log.warning("analytics table init failed: %s", exc)
 
@@ -143,24 +101,30 @@ def log_contest_result(
     user_id: str = "",
 ) -> bool:
     """Write a single contest result row. Returns True on success."""
+    session = _pg_session()
     try:
-        con = _master()
-        con.execute("""
-            INSERT INTO contest_results
-                (id, contest_date, contest_type, site, entry_fee, payout,
-                 final_rank, total_entries, lineup_proj, lineup_actual, notes, user_id)
-            VALUES
-                (nextval('contest_results_id_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            contest_date, contest_type.lower(), site.upper(),
-            float(entry_fee), float(payout),
-            final_rank, total_entries,
-            lineup_proj, lineup_actual, notes, user_id,
-        ])
+        row = ContestResult(
+            contest_date=contest_date,
+            contest_type=contest_type.lower(),
+            site=site.upper(),
+            entry_fee=float(entry_fee),
+            payout=float(payout),
+            final_rank=final_rank,
+            total_entries=total_entries,
+            lineup_proj=lineup_proj,
+            lineup_actual=lineup_actual,
+            notes=notes,
+            user_id=user_id,
+        )
+        session.add(row)
+        session.commit()
         return True
     except Exception as exc:
+        session.rollback()
         log.error("log_contest_result failed: %s", exc)
         return False
+    finally:
+        session.close()
 
 
 def get_roi_summary(period_days: Optional[int] = None, site: Optional[str] = None, user_id: str = "") -> dict[str, Any]:
@@ -171,76 +135,65 @@ def get_roi_summary(period_days: Optional[int] = None, site: Optional[str] = Non
         total_invested, total_won, profit, roi_percentage,
         total_contests, roi_by_type, period_days
     """
+    session = _pg_session()
     try:
-        con = _master()
-
-        conditions = ["1=1"]
-        params: list[Any] = []
+        q = session.query(ContestResult)
 
         if user_id:
-            conditions.append("user_id = ?")
-            params.append(user_id)
+            q = q.filter(ContestResult.user_id == user_id)
         if period_days:
-            cutoff = (datetime.utcnow() - timedelta(days=period_days)).date()
-            conditions.append("contest_date >= ?")
-            params.append(cutoff)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=period_days)).date()
+            q = q.filter(ContestResult.contest_date >= cutoff)
         if site:
-            conditions.append("site = ?")
-            params.append(site.upper())
+            q = q.filter(ContestResult.site == site.upper())
 
-        where = " AND ".join(conditions)
-        df: pd.DataFrame = con.execute(
-            f"""
-            SELECT contest_date, contest_type, site,
-                   entry_fee, payout, final_rank, total_entries
-            FROM contest_results
-            WHERE {where}
-            ORDER BY contest_date DESC
-            """,
-            params,
-        ).df()
+        rows = q.order_by(ContestResult.contest_date.desc()).all()
 
+        if not rows:
+            return {
+                "total_invested": 0.0,
+                "total_won": 0.0,
+                "profit": 0.0,
+                "roi_percentage": 0.0,
+                "total_contests": 0,
+                "roi_by_type": {},
+                "period_days": period_days or "all_time",
+            }
+
+        total_invested = sum(r.entry_fee for r in rows)
+        total_won = sum(r.payout for r in rows)
+        profit = total_won - total_invested
+        roi_pct = (profit / total_invested * 100) if total_invested > 0 else 0.0
+
+        # Group by contest_type
+        roi_by_type: dict[str, Any] = {}
+        from itertools import groupby as _groupby
+        for ct, grp_iter in _groupby(sorted(rows, key=lambda r: r.contest_type), key=lambda r: r.contest_type):
+            grp = list(grp_iter)
+            invested = sum(r.entry_fee for r in grp)
+            won = sum(r.payout for r in grp)
+            roi_by_type[ct] = {
+                "invested": invested,
+                "won": won,
+                "profit": round(won - invested, 2),
+                "roi": round((won - invested) / invested * 100, 2) if invested > 0 else 0.0,
+                "count": len(grp),
+            }
+
+        return {
+            "total_invested": round(total_invested, 2),
+            "total_won": round(total_won, 2),
+            "profit": round(profit, 2),
+            "roi_percentage": round(roi_pct, 2),
+            "total_contests": len(rows),
+            "roi_by_type": roi_by_type,
+            "period_days": period_days or "all_time",
+        }
     except Exception as exc:
         log.warning("get_roi_summary DB read failed: %s", exc)
         return {"error": str(exc), "total_contests": 0}
-
-    if df.empty:
-        return {
-            "total_invested": 0.0,
-            "total_won": 0.0,
-            "profit": 0.0,
-            "roi_percentage": 0.0,
-            "total_contests": 0,
-            "roi_by_type": {},
-            "period_days": period_days or "all_time",
-        }
-
-    total_invested = float(df["entry_fee"].sum())
-    total_won = float(df["payout"].sum())
-    profit = total_won - total_invested
-    roi_pct = (profit / total_invested * 100) if total_invested > 0 else 0.0
-
-    roi_by_type: dict[str, Any] = {}
-    for ct, grp in df.groupby("contest_type"):
-        invested = float(grp["entry_fee"].sum())
-        won = float(grp["payout"].sum())
-        roi_by_type[ct] = {
-            "invested": invested,
-            "won": won,
-            "profit": round(won - invested, 2),
-            "roi": round((won - invested) / invested * 100, 2) if invested > 0 else 0.0,
-            "count": len(grp),
-        }
-
-    return {
-        "total_invested": round(total_invested, 2),
-        "total_won": round(total_won, 2),
-        "profit": round(profit, 2),
-        "roi_percentage": round(roi_pct, 2),
-        "total_contests": len(df),
-        "roi_by_type": roi_by_type,
-        "period_days": period_days or "all_time",
-    }
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -258,33 +211,32 @@ def log_projections(projections: list[dict], slate_date: date, site: str, user_i
     """
     if not projections:
         return 0
+    session = _pg_session()
     try:
-        rows = [
-            (
-                slate_date, site.upper(),
-                str(p.get("player_id", "")),
-                str(p.get("player_name", p.get("name", ""))),
-                int(p.get("salary", 0)),
-                float(p.get("proj", p.get("Proj", 0.0))),
-                float(p.get("floor", p.get("Floor", 0.0))),
-                float(p.get("ceiling", p.get("Ceiling", 0.0))),
-                float(p.get("ownership", p.get("Own", 0.0))),
-                user_id,
+        objs = [
+            ProjectionLog(
+                slate_date=slate_date,
+                site=site.upper(),
+                player_id=str(p.get("player_id", "")),
+                player_name=str(p.get("player_name", p.get("name", ""))),
+                salary=int(p.get("salary", 0)),
+                proj=float(p.get("proj", p.get("Proj", 0.0))),
+                floor=float(p.get("floor", p.get("Floor", 0.0))),
+                ceiling=float(p.get("ceiling", p.get("Ceiling", 0.0))),
+                ownership=float(p.get("ownership", p.get("Own", 0.0))),
+                user_id=user_id,
             )
             for p in projections
         ]
-        con = _master()
-        con.executemany("""
-            INSERT INTO projection_log
-                (id, slate_date, site, player_id, player_name, salary,
-                 proj, floor, ceiling, ownership, user_id)
-            VALUES
-                (nextval('projection_log_id_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, rows)
-        return len(rows)
+        session.add_all(objs)
+        session.commit()
+        return len(objs)
     except Exception as exc:
+        session.rollback()
         log.error("log_projections failed: %s", exc)
         return 0
+    finally:
+        session.close()
 
 
 def reconcile_projections(slate_date: date, site: str) -> dict[str, Any]:
@@ -294,11 +246,11 @@ def reconcile_projections(slate_date: date, site: str) -> dict[str, Any]:
 
     Returns a summary dict: {reconciled: N, mae: float, rmse: float}
     """
+    session = _pg_session()
     try:
-        master = _master()
         edge = _edge()
 
-        # Load actuals from game logs
+        # Load actuals from DuckDB game logs (read-only reference data)
         actuals_df: pd.DataFrame = edge.execute("""
             SELECT player_name,
                    ROUND(AVG(dk_pts), 3) AS avg_dk,
@@ -314,44 +266,55 @@ def reconcile_projections(slate_date: date, site: str) -> dict[str, Any]:
 
         pts_col = "avg_dk" if site.upper() == "DK" else "avg_fd"
 
-        # Load projections for that date/site
-        proj_df: pd.DataFrame = master.execute("""
-            SELECT id, player_name, proj
-            FROM projection_log
-            WHERE slate_date = ? AND site = ? AND reconciled = FALSE
-        """, [slate_date, site.upper()]).df()
-
-        if proj_df.empty:
-            return {"reconciled": 0, "note": "no unreconciled projections found"}
-
-        merged = proj_df.merge(
-            actuals_df[["player_name", pts_col]],
-            on="player_name",
-            how="inner",
+        # Load unreconciled projections from Postgres
+        unrec = (
+            session.query(ProjectionLog)
+            .filter(
+                ProjectionLog.slate_date == slate_date,
+                ProjectionLog.site == site.upper(),
+                ProjectionLog.reconciled == False,  # noqa: E712
+            )
+            .all()
         )
 
-        if merged.empty:
+        if not unrec:
+            return {"reconciled": 0, "note": "no unreconciled projections found"}
+
+        # Build lookup from actuals
+        actuals_map: dict[str, float] = dict(
+            zip(actuals_df["player_name"], actuals_df[pts_col])
+        )
+
+        reconciled_count = 0
+        errors: list[float] = []
+        for row in unrec:
+            actual = actuals_map.get(row.player_name)
+            if actual is not None:
+                row.actual_pts = float(actual)
+                row.reconciled = True
+                errors.append(row.proj - float(actual))
+                reconciled_count += 1
+
+        session.commit()
+
+        if not errors:
             return {"reconciled": 0, "note": "no player name matches"}
 
-        for _, row in merged.iterrows():
-            master.execute("""
-                UPDATE projection_log
-                SET actual_pts = ?, reconciled = TRUE
-                WHERE id = ?
-            """, [float(row[pts_col]), int(row["id"])])
-
-        errors = (merged["proj"] - merged[pts_col]).abs()
-        sq_errors = (merged["proj"] - merged[pts_col]) ** 2
+        abs_errors = [abs(e) for e in errors]
+        sq_errors = [e ** 2 for e in errors]
         return {
-            "reconciled": len(merged),
-            "mae": round(float(errors.mean()), 3),
-            "rmse": round(float(sq_errors.mean() ** 0.5), 3),
-            "bias": round(float((merged["proj"] - merged[pts_col]).mean()), 3),
+            "reconciled": reconciled_count,
+            "mae": round(sum(abs_errors) / len(abs_errors), 3),
+            "rmse": round((sum(sq_errors) / len(sq_errors)) ** 0.5, 3),
+            "bias": round(sum(errors) / len(errors), 3),
         }
 
     except Exception as exc:
+        session.rollback()
         log.error("reconcile_projections failed: %s", exc)
         return {"error": str(exc), "reconciled": 0}
+    finally:
+        session.close()
 
 
 def get_accuracy_report(
@@ -364,78 +327,79 @@ def get_accuracy_report(
 
     Returns: {total_projections, mae, rmse, bias, by_day: [...]}
     """
+    session = _pg_session()
     try:
-        con = _master()
-
-        conditions = ["reconciled = TRUE", "site = ?"]
-        params: list[Any] = [site.upper()]
+        q = session.query(ProjectionLog).filter(
+            ProjectionLog.reconciled == True,  # noqa: E712
+            ProjectionLog.site == site.upper(),
+        )
 
         if user_id:
-            conditions.append("user_id = ?")
-            params.append(user_id)
+            q = q.filter(ProjectionLog.user_id == user_id)
         if period_days:
-            cutoff = (datetime.utcnow() - timedelta(days=period_days)).date()
-            conditions.append("slate_date >= ?")
-            params.append(cutoff)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=period_days)).date()
+            q = q.filter(ProjectionLog.slate_date >= cutoff)
 
-        where = " AND ".join(conditions)
-        df: pd.DataFrame = con.execute(
-            f"""
-            SELECT slate_date, proj, actual_pts,
-                   ABS(proj - actual_pts) AS abs_error,
-                   (proj - actual_pts)    AS error
-            FROM projection_log
-            WHERE {where}
-            ORDER BY slate_date DESC
-            """,
-            params,
-        ).df()
+        rows = q.order_by(ProjectionLog.slate_date.desc()).all()
 
+        if not rows:
+            return {
+                "total_projections": 0,
+                "mae": None,
+                "rmse": None,
+                "bias": None,
+                "period_days": period_days or "all_time",
+                "by_day": [],
+            }
+
+        # Build DataFrame for aggregation
+        df = pd.DataFrame([
+            {
+                "slate_date": r.slate_date,
+                "proj": r.proj,
+                "actual_pts": r.actual_pts,
+            }
+            for r in rows
+        ])
+        df["abs_error"] = (df["proj"] - df["actual_pts"]).abs()
+        df["error"] = df["proj"] - df["actual_pts"]
+
+        by_day = (
+            df.groupby("slate_date")
+            .agg(
+                count=("proj", "count"),
+                mae=("abs_error", "mean"),
+                rmse=("error", lambda x: float((x**2).mean() ** 0.5)),
+                bias=("error", "mean"),
+            )
+            .reset_index()
+            .rename(columns={"slate_date": "date"})
+            .to_dict(orient="records")
+        )
+
+        return {
+            "total_projections": len(df),
+            "mae": round(float(df["abs_error"].mean()), 3),
+            "rmse": round(float((df["error"] ** 2).mean() ** 0.5), 3),
+            "bias": round(float(df["error"].mean()), 3),
+            "period_days": period_days or "all_time",
+            "site": site.upper(),
+            "by_day": [
+                {
+                    "date": str(r["date"]),
+                    "count": int(r["count"]),
+                    "mae": round(float(r["mae"]), 3),
+                    "rmse": round(float(r["rmse"]), 3),
+                    "bias": round(float(r["bias"]), 3),
+                }
+                for r in by_day
+            ],
+        }
     except Exception as exc:
         log.warning("get_accuracy_report failed: %s", exc)
         return {"error": str(exc)}
-
-    if df.empty:
-        return {
-            "total_projections": 0,
-            "mae": None,
-            "rmse": None,
-            "bias": None,
-            "period_days": period_days or "all_time",
-            "by_day": [],
-        }
-
-    by_day = (
-        df.groupby("slate_date")
-        .agg(
-            count=("proj", "count"),
-            mae=("abs_error", "mean"),
-            rmse=("error", lambda x: float((x**2).mean() ** 0.5)),
-            bias=("error", "mean"),
-        )
-        .reset_index()
-        .rename(columns={"slate_date": "date"})
-        .to_dict(orient="records")
-    )
-
-    return {
-        "total_projections": len(df),
-        "mae": round(float(df["abs_error"].mean()), 3),
-        "rmse": round(float((df["error"] ** 2).mean() ** 0.5), 3),
-        "bias": round(float(df["error"].mean()), 3),
-        "period_days": period_days or "all_time",
-        "site": site.upper(),
-        "by_day": [
-            {
-                "date": str(r["date"]),
-                "count": int(r["count"]),
-                "mae": round(float(r["mae"]), 3),
-                "rmse": round(float(r["rmse"]), 3),
-                "bias": round(float(r["bias"]), 3),
-            }
-            for r in by_day
-        ],
-    }
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -696,46 +660,51 @@ def import_ownership_actuals(
         return {"imported": 0, "skipped": 0, "note": "no valid rows after parsing"}
 
     # Merge with projection_log for that date to get prediction + salary
+    pg_session = _pg_session()
     try:
-        con = _master()
-        proj_df = con.execute(
-            "SELECT player_name, proj, ownership AS predicted_own FROM projection_log "
-            "WHERE slate_date = ? AND site = ?",
-            [game_date, site.upper()],
-        ).df()
+        proj_rows = (
+            pg_session.query(ProjectionLog.player_name, ProjectionLog.proj, ProjectionLog.ownership)
+            .filter(ProjectionLog.slate_date == game_date, ProjectionLog.site == site.upper())
+            .all()
+        )
+        proj_df = pd.DataFrame(proj_rows, columns=["player_name", "proj", "predicted_own"])
     except Exception:
         proj_df = pd.DataFrame(columns=["player_name", "proj", "predicted_own"])
 
     merged = df.merge(proj_df, on="player_name", how="left")
 
-    # Write to ownership_actuals in dfs_master
+    # Write to ownership_actuals in Postgres (upsert on unique constraint)
     imported = 0
     try:
         for _, row in merged.iterrows():
             try:
-                con.execute(
-                    """
-                    INSERT OR REPLACE INTO ownership_actuals
-                        (id, game_date, site, player_name, actual_own_pct,
-                         predicted_own, proj, contest_type, slate_id)
-                    VALUES
-                        (nextval('ownership_actuals_id_seq'), ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        game_date, site.upper(),
-                        str(row["player_name"]),
-                        float(row["actual_own_pct"]),
-                        float(row["predicted_own"]) if pd.notna(row.get("predicted_own")) else None,
-                        float(row["proj"]) if pd.notna(row.get("proj")) else None,
-                        contest_type.lower(),
-                        slate_id,
-                    ],
+                stmt = pg_insert(OwnershipActual).values(
+                    game_date=game_date,
+                    site=site.upper(),
+                    player_name=str(row["player_name"]),
+                    actual_own_pct=float(row["actual_own_pct"]),
+                    predicted_own=float(row["predicted_own"]) if pd.notna(row.get("predicted_own")) else None,
+                    proj=float(row["proj"]) if pd.notna(row.get("proj")) else None,
+                    contest_type=contest_type.lower(),
+                    slate_id=slate_id,
+                ).on_conflict_do_update(
+                    constraint="uq_ownership_actual",
+                    set_={
+                        "actual_own_pct": float(row["actual_own_pct"]),
+                        "predicted_own": float(row["predicted_own"]) if pd.notna(row.get("predicted_own")) else None,
+                        "proj": float(row["proj"]) if pd.notna(row.get("proj")) else None,
+                    },
                 )
+                pg_session.execute(stmt)
                 imported += 1
             except Exception:
                 pass
+        pg_session.commit()
     except Exception as exc:
+        pg_session.rollback()
         log.error("import_ownership_actuals insert failed: %s", exc)
+    finally:
+        pg_session.close()
 
     # Also write to ownership_history.duckdb for model training
     try:
@@ -782,81 +751,84 @@ def get_ownership_accuracy_report(
     chalk_accuracy = % of players with actual_own_pct >= 30%
                      where |predicted - actual| <= 8 percentage points.
     """
+    session = _pg_session()
     try:
-        con = _master()
-        conditions = ["site = ?"]
-        params: list[Any] = [site.upper()]
+        q = session.query(OwnershipActual).filter(
+            OwnershipActual.site == site.upper(),
+            OwnershipActual.predicted_own.isnot(None),
+        )
 
         if period_days:
-            cutoff = (datetime.utcnow() - timedelta(days=period_days)).date()
-            conditions.append("game_date >= ?")
-            params.append(cutoff)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=period_days)).date()
+            q = q.filter(OwnershipActual.game_date >= cutoff)
 
-        conditions.append("predicted_own IS NOT NULL")
-        where = " AND ".join(conditions)
+        rows = q.order_by(OwnershipActual.game_date.desc()).all()
 
-        df: pd.DataFrame = con.execute(
-            f"""
-            SELECT game_date, player_name, actual_own_pct, predicted_own, own_source
-            FROM ownership_actuals
-            WHERE {where}
-            ORDER BY game_date DESC
-            """,
-            params,
-        ).df()
+        if not rows:
+            return {
+                "total_players": 0,
+                "mae": None,
+                "bias": None,
+                "chalk_accuracy": None,
+                "model_pct": None,
+                "period_days": period_days or "all_time",
+                "site": site.upper(),
+                "note": "No ownership actuals yet. Import a contest results CSV via POST /analytics/import-ownership-actuals.",
+            }
+
+        df = pd.DataFrame([
+            {
+                "game_date": r.game_date,
+                "player_name": r.player_name,
+                "actual_own_pct": r.actual_own_pct,
+                "predicted_own": r.predicted_own,
+                "own_source": r.own_source or "fallback",
+            }
+            for r in rows
+        ])
+
+        abs_err = (df["predicted_own"] - df["actual_own_pct"]).abs()
+        bias = float((df["predicted_own"] - df["actual_own_pct"]).mean())
+
+        chalk = df[df["actual_own_pct"] >= 30.0]
+        chalk_acc = (
+            float((chalk["predicted_own"] - chalk["actual_own_pct"]).abs().le(8.0).mean() * 100)
+            if len(chalk) > 0 else None
+        )
+
+        model_pct = float((df["own_source"] == "model").mean() * 100) if "own_source" in df.columns else None
+
+        by_day_raw = (
+            df.assign(abs_err=abs_err, error=df["predicted_own"] - df["actual_own_pct"])
+            .groupby("game_date")
+            .agg(count=("player_name", "count"), mae=("abs_err", "mean"), bias=("error", "mean"))
+            .reset_index()
+            .rename(columns={"game_date": "date"})
+        )
+
+        return {
+            "total_players": len(df),
+            "mae": round(float(abs_err.mean()), 3),
+            "bias": round(bias, 3),
+            "chalk_accuracy": round(chalk_acc, 1) if chalk_acc is not None else None,
+            "model_pct": round(model_pct, 1) if model_pct is not None else None,
+            "period_days": period_days or "all_time",
+            "site": site.upper(),
+            "by_day": [
+                {
+                    "date": str(r["date"]),
+                    "count": int(r["count"]),
+                    "mae": round(float(r["mae"]), 3),
+                    "bias": round(float(r["bias"]), 3),
+                }
+                for _, r in by_day_raw.iterrows()
+            ],
+        }
     except Exception as exc:
         log.warning("get_ownership_accuracy_report failed: %s", exc)
         return {"error": str(exc)}
-
-    if df.empty:
-        return {
-            "total_players": 0,
-            "mae": None,
-            "bias": None,
-            "chalk_accuracy": None,
-            "model_pct": None,
-            "period_days": period_days or "all_time",
-            "site": site.upper(),
-            "note": "No ownership actuals yet. Import a contest results CSV via POST /analytics/import-ownership-actuals.",
-        }
-
-    abs_err = (df["predicted_own"] - df["actual_own_pct"]).abs()
-    bias = float((df["predicted_own"] - df["actual_own_pct"]).mean())
-
-    chalk = df[df["actual_own_pct"] >= 30.0]
-    chalk_acc = (
-        float((chalk["predicted_own"] - chalk["actual_own_pct"]).abs().le(8.0).mean() * 100)
-        if len(chalk) > 0 else None
-    )
-
-    model_pct = float((df["own_source"] == "model").mean() * 100) if "own_source" in df.columns else None
-
-    by_day_raw = (
-        df.assign(abs_err=abs_err, error=df["predicted_own"] - df["actual_own_pct"])
-        .groupby("game_date")
-        .agg(count=("player_name", "count"), mae=("abs_err", "mean"), bias=("error", "mean"))
-        .reset_index()
-        .rename(columns={"game_date": "date"})
-    )
-
-    return {
-        "total_players": len(df),
-        "mae": round(float(abs_err.mean()), 3),
-        "bias": round(bias, 3),
-        "chalk_accuracy": round(chalk_acc, 1) if chalk_acc is not None else None,
-        "model_pct": round(model_pct, 1) if model_pct is not None else None,
-        "period_days": period_days or "all_time",
-        "site": site.upper(),
-        "by_day": [
-            {
-                "date": str(r["date"]),
-                "count": int(r["count"]),
-                "mae": round(float(r["mae"]), 3),
-                "bias": round(float(r["bias"]), 3),
-            }
-            for _, r in by_day_raw.iterrows()
-        ],
-    }
+    finally:
+        session.close()
 
 
 def get_ownership_model_status() -> dict[str, Any]:

@@ -72,6 +72,8 @@ def init_db():
         log.warning("[db] Skipping init_db — DATABASE_URL not set.")
         return False
     from models.user import Base
+    # Import analytics models so Base.metadata.create_all picks them up
+    import models.analytics  # noqa: F401
     log.info("[db] Initialising database...")
     try:
         Base.metadata.create_all(bind=engine)

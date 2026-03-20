@@ -5,7 +5,7 @@ Authentication Routes - The gateway to our 100K+ user platform!
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
-from datetime import datetime
+from datetime import datetime, timezone
 
 from database.db import get_db
 from models.user import User
@@ -122,7 +122,7 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         )
     
     # Update last login
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = datetime.now(timezone.utc)
     db.commit()
 
     # Create access token
