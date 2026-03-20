@@ -15,6 +15,7 @@ import { formatSalary, formatProjection, cn } from '@/lib/utils'
 import { useLatestSlate } from '@/hooks/useLatestSlate'
 import { SlateSelector } from '@/components/shared/SlateSelector'
 import { SkeletonTable } from '@/components/ui/Skeleton'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { ContestModeSelector, CONTEST_MODE_PRESETS, type ContestMode, type ContestModeConfig } from '@/components/shared/ContestModeSelector'
 import { LockFadeControl } from '@/components/shared/LockFadeControl'
 import { CopyLineupButton } from '@/components/shared/CopyLineupButton'
@@ -1025,6 +1026,17 @@ export default function OptimizerPage() {
             <p className="mt-2 mb-0 text-[11px] text-success/60">
               Projection source: L10 game-log rolling avg + DvP. DK/FD stock averages never used.
             </p>
+          </div>
+        )}
+
+        {/* Empty state — no optimizer run yet */}
+        {!loading && !pipelineLoading && !error && result === null && (
+          <div className="bg-surface-raised border border-surface-border rounded-xl mt-5">
+            <EmptyState
+              icon="🏆"
+              title="No lineups generated yet"
+              description="Upload a projections CSV above and click Generate Lineups to build your optimal lineup set."
+            />
           </div>
         )}
 

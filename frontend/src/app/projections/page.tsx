@@ -6,6 +6,7 @@ import { formatSalary } from '@/lib/utils'
 import { useLatestSlate } from '@/hooks/useLatestSlate'
 import { SlateSelector } from '@/components/shared/SlateSelector'
 import { SkeletonTable } from '@/components/ui/Skeleton'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -250,6 +251,18 @@ export default function ProjectionsPage() {
         {loading && projections.length === 0 && (
           <div className="bg-surface-raised border border-surface-border rounded-xl p-4">
             <SkeletonTable rows={10} cols={10} />
+          </div>
+        )}
+
+        {/* Empty state — no projections run yet */}
+        {!loading && !error && projections.length === 0 && (
+          <div className="bg-surface-raised border border-surface-border rounded-xl">
+            <EmptyState
+              icon="📊"
+              title="No projections yet"
+              description="Select a slate or upload a salary CSV above, then click Run Projections."
+              action={file ? { label: 'Run Projections', onClick: handleRun } : undefined}
+            />
           </div>
         )}
 

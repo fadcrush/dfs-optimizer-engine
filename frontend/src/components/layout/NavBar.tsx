@@ -1,8 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import {
+  AUTH_DISABLED,
+  AUTH_SESSION_EVENT,
+  clearAuthSession,
+  getStoredUser,
+  type StoredUser,
+} from '@/lib/auth'
 
 const NAV_ITEMS = [
   { href: '/',             label: 'Home'        },
@@ -14,7 +21,6 @@ const NAV_ITEMS = [
   { href: '/late-swap',    label: 'Late Swap'   },
   { href: '/analytics',    label: 'Analytics'   },
   { href: '/metrics',      label: 'Metrics'     },
-  { href: '/auth',         label: 'Auth'        },
 ]
 
 function useClock() {
@@ -33,9 +39,39 @@ function useClock() {
   return display
 }
 
+function useCurrentUser() {
+  const [user, setUser] = useState<StoredUser | null>(null)
+  useEffect(() => {
+    setUser(getStoredUser())
+    const handler = () => setUser(getStoredUser())
+    window.addEventListener(AUTH_SESSION_EVENT, handler)
+    return () => window.removeEventListener(AUTH_SESSION_EVENT, handler)
+  }, [])
+  return user
+}
+
 export function NavBar() {
   const path = usePathname()
+  const router = useRouter()
   const clock = useClock()
+  const user = useCurrentUser()
+
+  const initials = (() => {
+    if (!user) return null
+    const name = user.full_name?.trim()
+    if (name) {
+      const parts = name.split(' ')
+      return parts.length >= 2
+        ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+        : parts[0][0].toUpperCase()
+    }
+    return user.email?.[0]?.toUpperCase() ?? '?'
+  })()
+
+  const handleSignOut = () => {
+    clearAuthSession()
+    router.push('/auth')
+  }
 
   return (
     <nav className="bg-[#1e2d40] border-b border-[#334155] px-5 flex items-center h-12 sticky top-0 z-[100]">
@@ -61,15 +97,36 @@ export function NavBar() {
       </div>
 
       {/* Right: clock + user */}
-      <div className="flex items-center gap-4 ml-4">
+      <div className="flex items-center gap-3 ml-4">
         {clock && (
           <span className="text-[11px] text-text-muted whitespace-nowrap">
             {clock}
           </span>
         )}
-        <div className="w-7 h-7 rounded-full bg-[#3b82f6] flex items-center justify-center text-[11px] font-bold text-white shrink-0">
-          D
-        </div>
+
+        {!AUTH_DISABLED && !user ? (
+          <Link
+            href="/auth"
+            className="text-[11px] font-semibold text-[#3b82f6] hover:text-white transition-colors whitespace-nowrap no-underline"
+          >
+            Sign in
+          </Link>
+        ) : (
+          <div className="flex items-center gap-2">
+            {user && (
+              <span className="text-[11px] text-text-muted whitespace-nowrap hidden sm:block max-w-[120px] truncate" title={user.email}>
+                {user.full_name?.trim() || user.email}
+              </span>
+            )}
+            <button
+              onClick={!AUTH_DISABLED ? handleSignOut : undefined}
+              title={user ? `Signed in as ${user.email}` : 'Local dev'}
+              className="w-7 h-7 rounded-full bg-[#3b82f6] flex items-center justify-center text-[11px] font-bold text-white shrink-0 border-0 cursor-pointer hover:bg-[#2563eb] transition-colors"
+            >
+              {initials ?? (AUTH_DISABLED ? 'D' : '?')}
+            </button>
+          </div>
+        )}
       </div>
     </nav>
   )
