@@ -221,3 +221,31 @@ async def reset_password(body: PasswordResetConfirm, db: Session = Depends(get_d
     user.password_reset_expires_at = None
     db.commit()
     return {"message": "Password updated successfully. You can now log in."}
+
+
+@router.post("/refresh", response_model=AuthResponse)
+async def refresh_token(current_user=Depends(get_current_user)):
+    """Issue a fresh access token while the current token is still valid.
+
+    Stateless sliding-window refresh: the client presents a valid (not expired)
+    Bearer token and receives a new token with a full 24-hour window. Prevents
+    silent logouts when tokens expire mid-session.
+    """
+    if hasattr(current_user, "id"):
+        user_id = str(current_user.id)
+        user_dict = {
+            "id": str(current_user.id),
+            "email": current_user.email,
+            "full_name": current_user.full_name,
+            "tier": current_user.tier,
+        }
+    else:
+        user_id = str(current_user.get("id", ""))
+        user_dict = current_user
+
+    new_token = create_access_token(data={"sub": user_id})
+    return {
+        "access_token": new_token,
+        "token_type": "bearer",
+        "user": user_dict,
+    }
