@@ -10,7 +10,10 @@ Do NOT import from this module.  It will be removed in a future cleanup pass.
 """
 
 import pandas as pd
-from apis.nba.nba_api_client import get_nba_odds
+try:
+    from apis.nba.nba_api_client import get_nba_odds  # type: ignore[import]
+except ImportError:
+    get_nba_odds = None  # type: ignore[assignment]  # dead module — import guard
 from .defense import build_defense_table, defense_adjustment_for_matchup
 
 

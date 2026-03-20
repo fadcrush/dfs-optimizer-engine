@@ -3,8 +3,8 @@ User Model - The foundation of our 100K+ user base!
 """
 
 from sqlalchemy import Column, String, Boolean, DateTime, Integer
-from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
+from sqlalchemy.orm import declarative_base  # sqlalchemy.ext.declarative is deprecated
+from datetime import datetime, timezone
 import uuid
 
 Base = declarative_base()
@@ -39,8 +39,8 @@ class User(Base):
     password_reset_expires_at = Column(DateTime, nullable=True)
     
     # Tracking
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     last_login_at = Column(DateTime, nullable=True)
     
     # Usage stats (for analytics)

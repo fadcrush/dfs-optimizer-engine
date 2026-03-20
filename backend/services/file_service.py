@@ -41,6 +41,9 @@ def _trigger_injury_refresh() -> None:
     except Exception as exc:
         log.warning("[file_service] Background injury refresh failed: %s", exc)
 
+# Maximum allowed upload size (10 MB) — guards against disk-exhaustion attacks (S9)
+MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024
+
 # Base upload directory
 UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
 SLATES_DIR = UPLOAD_DIR / "slates"
@@ -96,6 +99,15 @@ async def save_slate_file(file: UploadFile, user_id: str | None = None) -> dict:
         dict with file_path, file_name, file_id
     """
     
+    # Reject uploads that exceed the size limit before writing anything to disk
+    first_chunk = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(first_chunk) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large — maximum upload size is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+        )
+    await file.seek(0)
+
     # Generate unique file ID
     file_id = str(uuid.uuid4())[:8]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

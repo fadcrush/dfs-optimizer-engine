@@ -13,6 +13,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _count_shared_players(lineup1, lineup2) -> int:
+    """Module-level helper: count players present in both lineup rows.
+
+    Detects player columns by name (DK/FD slot names  or generic 'player_*').
+    Used by both LineupSelector and AdvancedLineupSelector to avoid duplication.
+    """
+    _SLOT_NAMES = {"pg", "sg", "sf", "pf", "c", "g", "f", "util", "flex"}
+    player_cols = [
+        col for col in lineup1.index
+        if col.lower().startswith("player_")
+        or col.lower() in _SLOT_NAMES
+    ]
+    if not player_cols:
+        # Fallback: any column whose value is a non-empty string
+        player_cols = [col for col in lineup1.index if isinstance(lineup1[col], str) and lineup1[col]]
+    return sum(1 for col in player_cols if lineup1[col] == lineup2[col])
+
+
 class ContestAnalytics:
     """Analytics for contest performance tracking"""
     
@@ -356,16 +374,7 @@ class LineupSelector:
         return df.loc[selected].sort_values('total_score', ascending=False)
     
     def _count_shared_players(self, lineup1, lineup2) -> int:
-        """Count shared players between two lineups"""
-        # This is a simplified version - adjust based on your lineup data structure
-        shared = 0
-        player_cols = [col for col in lineup1.index if col.startswith('player_')]
-        
-        for col in player_cols:
-            if lineup1[col] == lineup2[col]:
-                shared += 1
-        
-        return shared
+        return _count_shared_players(lineup1, lineup2)
 
 
 def generate_analytics_report(
@@ -520,22 +529,8 @@ class AdvancedLineupSelector:
         return df.loc[selected_indices]
     
     def _count_shared_players(self, lineup1, lineup2) -> int:
-        """Count shared players between lineups"""
-        shared = 0
-        
-        # Try to find player columns
-        player_cols = [col for col in lineup1.index if 'player' in col.lower() or 'pg' in col or 'sg' in col or 'sf' in col or 'pf' in col or 'c' == col.lower()]
-        
-        if not player_cols:
-            # Fallback: assume all non-numeric columns are players
-            player_cols = lineup1.index[lineup1.apply(lambda x: isinstance(x, str))]
-        
-        for col in player_cols:
-            if lineup1[col] == lineup2[col]:
-                shared += 1
-        
-        return shared
-    
+        return _count_shared_players(lineup1, lineup2)
+
     def optimize_for_strategy(
         self,
         strategy: str,
