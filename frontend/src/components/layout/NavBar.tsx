@@ -55,6 +55,10 @@ export function NavBar() {
   const router = useRouter()
   const clock = useClock()
   const user = useCurrentUser()
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  // Close mobile menu on route change
+  useEffect(() => { setMenuOpen(false) }, [path])
 
   const initials = (() => {
     if (!user) return null
@@ -74,14 +78,15 @@ export function NavBar() {
   }
 
   return (
+    <>
     <nav className="bg-[#1e2d40] border-b border-[#334155] px-5 flex items-center h-12 sticky top-0 z-[100]">
       {/* Brand */}
       <span className="font-extrabold text-sm text-[#3b82f6] tracking-[-0.3px] mr-5 whitespace-nowrap">
         DFS Edge Pro
       </span>
 
-      {/* Nav links */}
-      <div className="flex gap-0.5 flex-1 overflow-x-auto">
+      {/* Nav links — desktop only */}
+      <div className="hidden md:flex gap-0.5 flex-1 overflow-x-auto">
         {NAV_ITEMS.map(({ href, label }) => {
           const active = path === href || (href !== '/' && path.startsWith(href))
           return (
@@ -96,8 +101,8 @@ export function NavBar() {
         })}
       </div>
 
-      {/* Right: clock + user */}
-      <div className="flex items-center gap-3 ml-4">
+      {/* Right: clock + user + hamburger */}
+      <div className="flex items-center gap-3 ml-auto">
         {clock && (
           <span className="text-[11px] text-text-muted whitespace-nowrap">
             {clock}
@@ -127,7 +132,39 @@ export function NavBar() {
             </button>
           </div>
         )}
+
+        {/* Hamburger — mobile only */}
+        <button
+          onClick={() => setMenuOpen(m => !m)}
+          aria-label="Toggle navigation menu"
+          aria-expanded={menuOpen}
+          className="md:hidden flex flex-col justify-center items-center w-7 h-7 gap-[4px] cursor-pointer bg-transparent border-0 p-0 shrink-0"
+        >
+          <span className={`block w-5 h-0.5 bg-[#cbd5e1] origin-center transition-transform duration-200 ${menuOpen ? 'rotate-45 translate-y-[6px]' : ''}`} />
+          <span className={`block w-5 h-0.5 bg-[#cbd5e1] transition-opacity duration-200 ${menuOpen ? 'opacity-0' : ''}`} />
+          <span className={`block w-5 h-0.5 bg-[#cbd5e1] origin-center transition-transform duration-200 ${menuOpen ? '-rotate-45 -translate-y-[6px]' : ''}`} />
+        </button>
       </div>
     </nav>
+
+    {/* Mobile drawer */}
+    {menuOpen && (
+      <div className="md:hidden bg-[#1e2d40] border-b border-[#334155] sticky top-12 z-[99] px-3 py-2 flex flex-col gap-0.5">
+        {NAV_ITEMS.map(({ href, label }) => {
+          const active = path === href || (href !== '/' && path.startsWith(href))
+          return (
+            <Link
+              key={href}
+              href={href}
+              onClick={() => setMenuOpen(false)}
+              className={`px-3 py-2 rounded-[5px] text-sm no-underline transition-[background,color] duration-150 ${active ? 'font-semibold text-white bg-[#2563eb]' : 'font-medium text-[#cbd5e1]'}`}
+            >
+              {label}
+            </Link>
+          )
+        })}
+      </div>
+    )}
+  </>
   )
 }

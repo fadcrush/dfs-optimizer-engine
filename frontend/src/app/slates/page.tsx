@@ -6,6 +6,7 @@ import type { SlateListItem, SlatePlayer, InjurySummary } from '@/lib/api/slates
 import { InjuryBadge } from '@/components/shared/InjuryBadge'
 import { InjuryAlertBanner } from '@/components/shared/InjuryAlertBanner'
 import { InjurySummaryPanel } from '@/components/shared/InjurySummaryPanel'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock data fallback
@@ -104,32 +105,6 @@ function UploadModal({ onClose, onSuccess }: UploadModalProps) {
               {uploading ? 'Uploading\u2026' : 'Upload'}
             </button>
           </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-interface ConfirmModalProps { slate: SlateListItem; deleting: boolean; onConfirm: () => void; onCancel: () => void }
-
-function ConfirmModal({ slate, deleting, onConfirm, onCancel }: ConfirmModalProps) {
-  return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-surface-overlay border border-surface-border rounded-xl w-full max-w-[400px] p-6">
-        <h3 className="m-0 mb-2 text-text-primary text-base font-bold">Delete Slate</h3>
-        <p className="m-0 mb-5 text-text-secondary text-sm">
-          Delete{' '}
-          <strong className="text-text-primary">
-            {slate.platform.toUpperCase()} {slate.sport.toUpperCase()}
-          </strong>{' '}
-          slate from {slate.date}? This cannot be undone.
-        </p>
-        <div className="flex gap-2">
-          <button onClick={onCancel} className={secBtnCls}>Cancel</button>
-          <button onClick={onConfirm} disabled={deleting}
-            className="flex-1 bg-danger text-white border-none rounded px-3.5 py-1.5 text-sm font-semibold cursor-pointer disabled:opacity-50 hover:bg-danger/90 transition-colors">
-            {deleting ? 'Deleting\u2026' : 'Delete'}
-          </button>
         </div>
       </div>
     </div>
@@ -541,9 +516,13 @@ export default function SlatesPage() {
         />
       )}
       {deleteTarget && (
-        <ConfirmModal
-          slate={deleteTarget}
-          deleting={deleting}
+        <ConfirmDialog
+          open
+          title="Delete Slate"
+          message={`Delete ${deleteTarget.platform.toUpperCase()} ${deleteTarget.sport.toUpperCase()} slate from ${deleteTarget.date}? This cannot be undone.`}
+          confirmLabel="Delete"
+          variant="danger"
+          isLoading={deleting}
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
         />
