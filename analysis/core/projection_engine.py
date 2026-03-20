@@ -10,7 +10,12 @@ import pandas as pd
 
 from analysis.shared.scoring import score_nba_row
 from analysis.nba.dvp import load_dvp_table, load_dvp_by_position
-from analysis.nba.b2b import get_rest_multipliers, get_blowout_multipliers, get_game_total_multipliers
+from analysis.nba.b2b import (
+    get_rest_multipliers,
+    get_blowout_multipliers,
+    get_game_total_multipliers,
+    get_injury_boost_multipliers,
+)
 from analysis.nba.ownership_v2 import predict_ownership
 from analysis.shared.db import get_conn
 
@@ -319,6 +324,7 @@ class CanonicalNBAProjectionEngine:
     blowout_enabled: bool = True        # set False to disable blowout risk for A/B testing
     minutes_trend_enabled: bool = True  # set False to disable minutes-trend layer
     game_total_enabled: bool = True     # set False to disable game O/U adjustment
+    injury_boost_enabled: bool = True   # set False to disable injury usage-boost layer
     ownership_enabled: bool = True      # set False to skip ownership estimation
     contest_type: str = "gpp"          # "gpp" | "cash" | "double_up" | "winner_take_all"
 
@@ -527,6 +533,30 @@ class CanonicalNBAProjectionEngine:
         else:
             df["GameTotal"] = 1.0
 
+        # ── Layer 9: Injury usage-boost adjustment ─────────────────────────────────
+        # When a key teammate is OUT/SSPD, remaining active players on the same
+        # team (especially at the same position) receive a usage boost.
+        # Operates entirely on the slate DataFrame — no DB or API calls required.
+        name_col_inj = next((c for c in ["Name", "name"] if c in df.columns), None)
+        if self.injury_boost_enabled and name_col_inj and team_col and pos_col_dvp:
+            inj_mults = get_injury_boost_multipliers(
+                df,
+                team_col=team_col,
+                pos_col=pos_col_dvp,
+                name_col=name_col_inj,
+            )
+            if inj_mults:
+                name_key_series = df[name_col_inj].map(lambda n: str(n).strip().upper())
+                inj_series = name_key_series.map(lambda k: inj_mults.get(k, 1.0))
+                df["InjuryBoost"] = inj_series.round(5)
+                df["Proj"] = (df["Proj"] * inj_series).round(4)
+                n_inj = int((inj_series != 1.0).sum())
+                log.info("Injury boost applied to %d/%d players", n_inj, len(df))
+            else:
+                df["InjuryBoost"] = 1.0
+        else:
+            df["InjuryBoost"] = 1.0
+
         # ── Per-player variance model ──────────────────────────────────────────
         # Prefer individual CV from rolling game logs; fall back to position CV.
         # StdDev = Proj × CV
@@ -595,7 +625,7 @@ class CanonicalNBAProjectionEngine:
         )
 
         out_cols = ["DFS_ID", "Raw_DFS_ID", "Name", "Team", "Opp", "Pos", "Salary",
-                    "Proj", "GL_L10", "DvP", "Rest", "Blowout", "MinutesTrend", "GameTotal",
+                    "Proj", "GL_L10", "DvP", "Rest", "Blowout", "MinutesTrend", "GameTotal", "InjuryBoost",
                     "StdDev", "Floor", "Ceiling",
                     "Own", "Own_Est", "own_source", "Leverage",
                     "Value", "InjuryStatus"]

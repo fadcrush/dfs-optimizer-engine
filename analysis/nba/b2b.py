@@ -243,3 +243,121 @@ def get_game_total_multipliers(
         n_boosted, n_reduced, len(multipliers) - n_boosted - n_reduced,
     )
     return multipliers
+
+
+# ---------------------------------------------------------------------------
+# Injury usage-boost multiplier — §3.4 usage rate after teammate injuries
+# ---------------------------------------------------------------------------
+
+# Per-OUT-player boost for an active teammate at the same primary position.
+_INJURY_BOOST_SAME_POS: float = 0.08   # +8 % per OUT player at same position
+# Per-OUT-player boost for an active teammate at a different position on same team.
+_INJURY_BOOST_DIFF_POS: float = 0.02   # +2 % per OUT player at different position
+# Maximum cumulative boost any single active player can receive.
+_INJURY_BOOST_CAP: float = 0.25        # ±25 % hard cap
+
+# Status values treated as "player will not play" — excludes GTD (game-time decision).
+_OUT_STATUSES: frozenset = frozenset({"OUT", "SSPD"})
+
+
+def get_injury_boost_multipliers(
+    df: "pd.DataFrame",
+    team_col: str = "Team",
+    pos_col: str = "Pos",
+    status_col: str = "InjuryStatus",
+    name_col: str = "Name",
+    same_pos_boost: float = _INJURY_BOOST_SAME_POS,
+    diff_pos_boost: float = _INJURY_BOOST_DIFF_POS,
+    cap: float = _INJURY_BOOST_CAP,
+    out_statuses: frozenset = _OUT_STATUSES,
+) -> dict[str, float]:
+    """Return ``{NAME_KEY: multiplier}`` for injury usage boosts.
+
+    When a starter or rotation player is marked OUT or SSPD, remaining active
+    players on the same team receive a usage boost.  Teammates at the same
+    primary position get a larger boost than those playing a different position.
+
+    Formula per active player A::
+
+        boost   = (n_same_pos_out × same_pos_boost) + (n_diff_pos_out × diff_pos_boost)
+        boost   = min(boost, cap)
+        mult    = 1.0 + boost
+
+    The OUT/SSPD player themselves is never included in the result (they will be
+    filtered from lineups by the pool-filter anyway).
+
+    ``NAME_KEY = str(name).strip().upper()``
+
+    Args:
+        df:              Full slate DataFrame.
+        team_col:        Column name for team abbreviation.
+        pos_col:         Column name for position (e.g. "PG/SG" normalised to "PG").
+        status_col:      Column name for injury status.  Absent column → no OUT players.
+        name_col:        Column name for player name.
+        same_pos_boost:  Fractional boost per OUT teammate at the same primary position.
+        diff_pos_boost:  Fractional boost per OUT teammate at a different position.
+        cap:             Maximum total boost for any single player.
+        out_statuses:    Set of status strings that mark a player as unavailable.
+    """
+    import pandas as pd  # noqa: PLC0415
+    from collections import defaultdict  # noqa: PLC0415
+
+    if df is None or df.empty:
+        return {}
+
+    needed = [team_col, pos_col, name_col]
+    if any(c not in df.columns for c in needed):
+        return {}
+
+    has_status = status_col in df.columns
+
+    def _primary_pos(raw) -> str:
+        """Normalise 'PG/SG' → 'PG'; upper-case."""
+        return str(raw).strip().split("/")[0].strip().upper()
+
+    def _name_key(raw) -> str:
+        return str(raw).strip().upper()
+
+    # Build compact record list
+    records = []
+    for _, row in df.iterrows():
+        status_raw = str(row[status_col]).strip().upper() if has_status else ""
+        records.append({
+            "key":    _name_key(row[name_col]),
+            "team":   str(row[team_col]).strip().upper(),
+            "pos":    _primary_pos(row[pos_col]),
+            "is_out": status_raw in out_statuses,
+        })
+
+    # Count OUT players per (team, position) bucket
+    out_per_team_pos: dict[tuple, int] = defaultdict(int)
+    out_per_team_total: dict[str, int] = defaultdict(int)
+    for rec in records:
+        if rec["is_out"]:
+            out_per_team_pos[(rec["team"], rec["pos"])] += 1
+            out_per_team_total[rec["team"]] += 1
+
+    if not out_per_team_total:
+        return {}  # No OUT/SSPD players on the slate — nothing to boost
+
+    multipliers: dict[str, float] = {}
+    for rec in records:
+        if rec["is_out"]:
+            continue  # OUT players receive no boost
+        team = rec["team"]
+        pos  = rec["pos"]
+        n_same  = out_per_team_pos.get((team, pos), 0)
+        n_total = out_per_team_total.get(team, 0)
+        n_diff  = n_total - n_same
+        raw_boost = (n_same * same_pos_boost) + (n_diff * diff_pos_boost)
+        capped = min(raw_boost, cap)
+        if capped > 0.0:
+            multipliers[rec["key"]] = round(1.0 + capped, 5)
+
+    n_boosted = len(multipliers)
+    n_out_teams = len(out_per_team_total)
+    log.debug(
+        "Injury boosts: %d players boosted across %d team(s) with OUT players",
+        n_boosted, n_out_teams,
+    )
+    return multipliers
