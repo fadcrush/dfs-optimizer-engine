@@ -547,7 +547,6 @@ def synthesize_ownership_from_slate(
         from analysis.nba.ownership_v2 import _ensure_ownership_db, OWNERSHIP_DB
         import duckdb
         _ensure_ownership_db()
-        own_con = duckdb.connect(str(OWNERSHIP_DB))
         rows = [
             (
                 str(r["name"]),
@@ -564,19 +563,19 @@ def synthesize_ownership_from_slate(
             )
             for _, r in work.iterrows()
         ]
-        # Add own_source to schema if not present (migration)
-        try:
-            own_con.execute("ALTER TABLE ownership_history ADD COLUMN IF NOT EXISTS own_source VARCHAR")
-        except Exception:
-            pass
-        own_con.executemany(
-            """INSERT OR REPLACE INTO ownership_history
-               (player_name, game_date, site, slate_id, actual_own_pct,
-                proj_at_lock, salary, team_total, is_home, contest_type, own_source)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            rows,
-        )
-        own_con.close()
+        with duckdb.connect(str(OWNERSHIP_DB)) as own_con:
+            # Add own_source to schema if not present (migration)
+            try:
+                own_con.execute("ALTER TABLE ownership_history ADD COLUMN IF NOT EXISTS own_source VARCHAR")
+            except Exception:
+                pass
+            own_con.executemany(
+                """INSERT OR REPLACE INTO ownership_history
+                   (player_name, game_date, site, slate_id, actual_own_pct,
+                    proj_at_lock, salary, team_total, is_home, contest_type, own_source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
         seeded = len(rows)
         log.info("Seeded %d synthetic ownership rows from slate", seeded)
     except Exception as exc:
@@ -743,7 +742,6 @@ def import_ownership_actuals(
         from analysis.nba.ownership_v2 import _ensure_ownership_db, OWNERSHIP_DB
         import duckdb
         _ensure_ownership_db()
-        own_con = duckdb.connect(str(OWNERSHIP_DB))
         rows = [
             (
                 str(r["player_name"]),
@@ -759,14 +757,14 @@ def import_ownership_actuals(
             )
             for _, r in merged.iterrows()
         ]
-        own_con.executemany(
-            """INSERT OR REPLACE INTO ownership_history
-               (player_name, game_date, site, slate_id, actual_own_pct,
-                proj_at_lock, salary, team_total, is_home, contest_type)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            rows,
-        )
-        own_con.close()
+        with duckdb.connect(str(OWNERSHIP_DB)) as own_con:
+            own_con.executemany(
+                """INSERT OR REPLACE INTO ownership_history
+                   (player_name, game_date, site, slate_id, actual_own_pct,
+                    proj_at_lock, salary, team_total, is_home, contest_type)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
         log.info("Wrote %d ownership actuals to training DB", len(rows))
     except Exception as exc:
         log.warning("Could not write to ownership_history: %s", exc)
@@ -873,16 +871,15 @@ def get_ownership_model_status() -> dict[str, Any]:
     training_rows: dict[str, int] = {}
     try:
         import duckdb
-        con = duckdb.connect(str(own_db), read_only=True)
-        for site in ("DK", "FD"):
-            try:
-                count = con.execute(
-                    "SELECT COUNT(*) FROM ownership_history WHERE site = ?", [site]
-                ).fetchone()[0]
-                training_rows[site] = int(count)
-            except Exception:
-                training_rows[site] = 0
-        con.close()
+        with duckdb.connect(str(own_db), read_only=True) as con:
+            for site in ("DK", "FD"):
+                try:
+                    count = con.execute(
+                        "SELECT COUNT(*) FROM ownership_history WHERE site = ?", [site]
+                    ).fetchone()[0]
+                    training_rows[site] = int(count)
+                except Exception:
+                    training_rows[site] = 0
     except Exception:
         training_rows = {"DK": 0, "FD": 0}
 

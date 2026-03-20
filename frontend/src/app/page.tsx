@@ -359,7 +359,7 @@ export default function DashboardPage() {
               ))}
             </div>
           ) : (
-            <div className="flex gap-2.5 overflow-x-auto pb-1.5" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e2a3a #0d1117' }}>
+            <div className="flex gap-2.5 overflow-x-auto pb-1.5 scrollbar-thin">
               {games.length === 0
                 ? <div className="text-[#475569] text-[13px] py-5">No games scheduled for today.</div>
                 : games.map(g => <GameCard key={g.id} game={g} />)
@@ -486,7 +486,7 @@ export default function DashboardPage() {
                           type="checkbox"
                           checked={visibleCols.has(col.key)}
                           onChange={() => toggleCol(col.key)}
-                          style={{ accentColor: '#3b82f6', width: 13, height: 13 }}
+                          className="w-[13px] h-[13px] accent-blue-500"
                         />
                         {col.label}
                       </label>
@@ -499,8 +499,9 @@ export default function DashboardPage() {
               <div className="flex gap-1">
                 {POSITIONS.map(pos => (
                   <button key={pos} onClick={() => { setPosFilter(pos); setTablePage(0) }}
-                    className="px-2.5 py-1 rounded-[5px] text-[11px] font-semibold cursor-pointer border-none"
-                    style={{ background: posFilter === pos ? '#2563eb' : '#1e293b', color: posFilter === pos ? '#fff' : '#64748b' }}>
+                    className={`px-2.5 py-1 rounded-[5px] text-[11px] font-semibold cursor-pointer border-none ${
+                      posFilter === pos ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'
+                    }`}>
                     {pos}
                   </button>
                 ))}
@@ -638,8 +639,9 @@ export default function DashboardPage() {
                     <span>Rows:</span>
                     {[25, 50, 100].map(n => (
                       <button key={n} onClick={() => { setRowsPerPage(n); setTablePage(0) }}
-                        className="px-2 py-[3px] border-none rounded cursor-pointer text-[11px] font-semibold"
-                        style={{ background: rowsPerPage === n ? '#2563eb' : '#1e293b', color: rowsPerPage === n ? '#fff' : '#64748b' }}>
+                        className={`px-2 py-[3px] border-none rounded cursor-pointer text-[11px] font-semibold ${
+                          rowsPerPage === n ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'
+                        }`}>
                         {n}
                       </button>
                     ))}
@@ -649,11 +651,13 @@ export default function DashboardPage() {
                       {tablePage * rowsPerPage + 1}–{Math.min((tablePage + 1) * rowsPerPage, filteredPlayers.length)} of {filteredPlayers.length}
                     </span>
                     <button onClick={() => setTablePage(p => Math.max(0, p - 1))} disabled={tablePage === 0}
-                      className="px-[9px] py-[3px] bg-[#1e293b] border-none rounded-[4px] text-[13px]"
-                      style={{ color: tablePage === 0 ? '#334155' : '#94a3b8', cursor: tablePage === 0 ? 'default' : 'pointer' }}>‹</button>
+                      className={`px-[9px] py-[3px] bg-[#1e293b] border-none rounded-[4px] text-[13px] ${
+                        tablePage === 0 ? 'text-slate-700 cursor-default' : 'text-slate-400 cursor-pointer'
+                      }`}>‹</button>
                     <button onClick={() => setTablePage(p => Math.min(totalPages - 1, p + 1))} disabled={tablePage >= totalPages - 1}
-                      className="px-[9px] py-[3px] bg-[#1e293b] border-none rounded-[4px] text-[13px]"
-                      style={{ color: tablePage >= totalPages - 1 ? '#334155' : '#94a3b8', cursor: tablePage >= totalPages - 1 ? 'default' : 'pointer' }}>›</button>
+                      className={`px-[9px] py-[3px] bg-[#1e293b] border-none rounded-[4px] text-[13px] ${
+                        tablePage >= totalPages - 1 ? 'text-slate-700 cursor-default' : 'text-slate-400 cursor-pointer'
+                      }`}>›</button>
                   </div>
                 </div>
               )}

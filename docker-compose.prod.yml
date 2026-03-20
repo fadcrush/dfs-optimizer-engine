@@ -69,41 +69,79 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ── Redis overrides ─────────────────────────────────────────────────────────
+  redis:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Celery worker overrides ─────────────────────────────────────────────────
+  celery_worker:
+    restart: always
+    stop_grace_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
 volumes:
   nginx_cache:
     driver: local
 
-  # ── Redis overrides ─────────────────────────────────────────────────────────
-redis:
-  restart: always
-  deploy:
-    resources:
-      limits:
-        cpus: "0.5"
-        memory: 512M
-      reservations:
-        cpus: "0.1"
-        memory: 128M
-  logging:
-    driver: "json-file"
-    options:
-      max-size: "10m"
-      max-file: "3"
+  # ── Cloud object storage volumes (S3 / Backblaze B2) ────────────────────────
+  # Uses the rclone Docker volume plugin: https://rclone.org/docker/
+  #
+  # Prerequisites on the production host:
+  #   docker plugin install rclone/docker-volume-rclone args="-v" --alias rclone --grant-all-permissions
+  #   Create an rclone remote named "dfs-s3" pointing at your S3 / B2 bucket.
+  #   docker plugin set rclone RCLONE_VERBOSE=1  # (optional, for debugging)
+  #
+  # Then mount the backend with named volumes instead of bind-mounts:
+  #   Add to the backend service in this override:
+  #     volumes:
+  #       - dfs_data:/app/data
+  #       - dfs_uploads:/app/backend/uploads
+  #       - dfs_outputs:/app/outputs
+  #
+  dfs_data:
+    driver: rclone
+    driver_opts:
+      remote: "dfs-s3:dfs-edge/data"     # rclone remote path: <remote>:<bucket>/<prefix>
+      allow_other: "true"
+      vfs_cache_mode: "full"             # cache locally for read/write performance
+      vfs_cache_max_size: "4G"
+      poll_interval: "0"                 # disable poll; DuckDB handles its own sync
 
-  # ── Celery worker overrides ─────────────────────────────────────────────────
-celery_worker:
-  restart: always
-  stop_grace_period: 60s
-  deploy:
-    resources:
-      limits:
-        cpus: "2.0"
-        memory: 2G
-      reservations:
-        cpus: "0.5"
-        memory: 512M
-  logging:
-    driver: "json-file"
-    options:
-      max-size: "20m"
-      max-file: "5"
+  dfs_uploads:
+    driver: rclone
+    driver_opts:
+      remote: "dfs-s3:dfs-edge/uploads"
+      allow_other: "true"
+      vfs_cache_mode: "writes"           # cache writes; uploads are write-heavy
+
+  dfs_outputs:
+    driver: rclone
+    driver_opts:
+      remote: "dfs-s3:dfs-edge/outputs"
+      allow_other: "true"
+      vfs_cache_mode: "writes"

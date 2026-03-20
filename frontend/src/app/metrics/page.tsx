@@ -99,7 +99,7 @@ function BarChart({ data }: { data: { date: string; completed: number; failed: n
                 {d.failed > 0 && (
                   <div className="w-full rounded-t-sm bg-danger" style={{ height: `${failRatio * 100}%` }} />
                 )}
-                <div className="w-full flex-1 bg-primary" style={{ borderRadius: d.failed > 0 ? '0' : '2px 2px 0 0' }} />
+                <div className={`w-full flex-1 bg-primary${d.failed > 0 ? '' : ' rounded-t-sm'}`} />
               </div>
             </div>
             <span className="text-[8px] text-text-muted mt-0.5 -rotate-45 origin-top">{shortDate}</span>
