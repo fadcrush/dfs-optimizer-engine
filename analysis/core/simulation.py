@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 
-CorrelationMode = Literal["none", "team"]
+CorrelationMode = Literal["none", "team", "game"]
 
 
 @dataclass
@@ -18,6 +18,9 @@ class SimulationConfig:
     base_corr: float = 0.05
     same_team_corr: float = 0.18
     opp_corr: float = 0.06
+    # ``game`` correlation mode uses game_corr for same-game opponents instead of
+    # opp_corr, boosting same-game stack correlations vs pure team-only mode.
+    game_corr: float = 0.10
     variance_pct: float = 0.18
 
 
@@ -72,12 +75,13 @@ def simulate_player_outcomes(
     mean = pd.to_numeric(df["Proj"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
     sigma = _derive_sigma(df, config.variance_pct).to_numpy(dtype=float)
 
-    if config.correlation == "team":
+    if config.correlation in ("team", "game"):
+        opp_corr_val = config.game_corr if config.correlation == "game" else config.opp_corr
         corr = build_team_correlation_matrix(
             df,
             base_corr=config.base_corr,
             same_team_corr=config.same_team_corr,
-            opp_corr=config.opp_corr,
+            opp_corr=opp_corr_val,
         )
     else:
         corr = np.eye(len(df), dtype=float)
@@ -99,15 +103,45 @@ def summarize_player_sims(
     if sims.size == 0:
         return pd.DataFrame()
 
+    proj = pd.to_numeric(df["Proj"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    sim_mean = sims.mean(axis=0)
+
+    # Boom rate: P(outcome > 1.5 × Proj) — ceiling-upside probability
+    boom_thresh = proj * 1.5
+    boom_rate = (sims > boom_thresh[np.newaxis, :]).mean(axis=0)
+
+    # Sim_Boost: how much the correlated mean exceeds the raw projection
+    sim_boost = np.zeros(len(df), dtype=float)
+    nonzero = proj > 0
+    sim_boost[nonzero] = sim_mean[nonzero] / proj[nonzero] - 1.0
+
+    # Ceiling_P: P(outcome >= Ceiling) — requires Ceiling column
+    if "Ceiling" in df.columns:
+        ceiling = pd.to_numeric(df["Ceiling"], errors="coerce").fillna(np.inf).to_numpy(dtype=float)
+        ceiling_p = (sims >= ceiling[np.newaxis, :]).mean(axis=0)
+    else:
+        ceiling_p = np.zeros(len(df), dtype=float)
+
+    # Floor_Hit_P: P(outcome <= Floor) — requires Floor column
+    if "Floor" in df.columns:
+        floor_arr = pd.to_numeric(df["Floor"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+        floor_hit_p = (sims <= floor_arr[np.newaxis, :]).mean(axis=0)
+    else:
+        floor_hit_p = np.zeros(len(df), dtype=float)
+
     summary = pd.DataFrame(
         {
             "DFS_ID": df["DFS_ID"].astype(str),
-            "Sim_Mean": sims.mean(axis=0),
+            "Sim_Mean": sim_mean,
             "Sim_Median": np.median(sims, axis=0),
             "Sim_P90": np.percentile(sims, 90, axis=0),
             "Sim_P95": np.percentile(sims, 95, axis=0),
             "Sim_P99": np.percentile(sims, 99, axis=0),
             "Sim_StdDev": sims.std(axis=0, ddof=0),
+            "Boom_Rate": np.round(boom_rate, 4),
+            "Ceiling_P": np.round(ceiling_p, 4),
+            "Floor_Hit_P": np.round(floor_hit_p, 4),
+            "Sim_Boost": np.round(sim_boost, 4),
         }
     )
     return summary

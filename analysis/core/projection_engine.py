@@ -18,6 +18,7 @@ from analysis.nba.b2b import (
 )
 from analysis.nba.ownership_v2 import predict_ownership
 from analysis.shared.db import get_conn
+from .simulation import SimulationConfig, simulate_player_outcomes, summarize_player_sims
 
 from .schemas import ProjectionContext
 
@@ -325,6 +326,8 @@ class CanonicalNBAProjectionEngine:
     minutes_trend_enabled: bool = True  # set False to disable minutes-trend layer
     game_total_enabled: bool = True     # set False to disable game O/U adjustment
     injury_boost_enabled: bool = True   # set False to disable injury usage-boost layer
+    simulation_enabled: bool = True     # set False to skip Monte Carlo sim columns
+    sim_n_sims: int = 500               # number of Monte Carlo trials
     ownership_enabled: bool = True      # set False to skip ownership estimation
     contest_type: str = "gpp"          # "gpp" | "cash" | "double_up" | "winner_take_all"
 
@@ -582,6 +585,30 @@ class CanonicalNBAProjectionEngine:
         df["Ceiling"] = (df["Proj"] + 1.5 * df["StdDev"]).round(4)
         df["Value"] = (df["Proj"] / (df["Salary"] / 1000.0).replace(0, pd.NA)).fillna(0.0)
 
+        # ── Monte Carlo simulation ─────────────────────────────────────────────
+        # After Floor/Ceiling are computed, run a player-outcome simulation to
+        # add Sim_P90 (90th-percentile score), Sim_Boost (correlation uplift), and
+        # Boom_Rate (P(score > 1.5×Proj)) so lineups can be ranked on upside.
+        _sim_cols = ["Sim_P90", "Sim_Boost", "Boom_Rate"]
+        if self.simulation_enabled:
+            try:
+                _sim_cfg = SimulationConfig(n_sims=self.sim_n_sims, seed=None, correlation="team")
+                _sims = simulate_player_outcomes(df, _sim_cfg)
+                _sim_summary = summarize_player_sims(df, _sims)
+                _to_merge = ["DFS_ID"] + [c for c in _sim_cols if c in _sim_summary.columns]
+                df = df.merge(_sim_summary[_to_merge], on="DFS_ID", how="left")
+                log.info(
+                    "Monte Carlo simulation merged: %d sims, %d players",
+                    self.sim_n_sims, len(df),
+                )
+            except Exception as exc:
+                log.warning("Monte Carlo simulation failed: %s — skipping", exc)
+                for _c in _sim_cols:
+                    df[_c] = float("nan")
+        else:
+            for _c in _sim_cols:
+                df[_c] = float("nan")
+
         # ── Ownership estimation ──────────────────────────────────────────────
         # Uses calibrated GBR model when available; falls back to percentile-rank
         # heuristic.  Populates Own, Own_Est, own_source.
@@ -626,7 +653,7 @@ class CanonicalNBAProjectionEngine:
 
         out_cols = ["DFS_ID", "Raw_DFS_ID", "Name", "Team", "Opp", "Pos", "Salary",
                     "Proj", "GL_L10", "DvP", "Rest", "Blowout", "MinutesTrend", "GameTotal", "InjuryBoost",
-                    "StdDev", "Floor", "Ceiling",
+                    "StdDev", "Floor", "Ceiling", "Sim_P90", "Sim_Boost", "Boom_Rate",
                     "Own", "Own_Est", "own_source", "Leverage",
                     "Value", "InjuryStatus"]
         return df[[c for c in out_cols if c in df.columns]]
