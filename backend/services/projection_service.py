@@ -48,22 +48,21 @@ async def generate_projections(
         projections_df: pd.DataFrame = pipeline_result["projections_df"]
         projections_df = projections_df.sort_values("Proj", ascending=False)
 
-        projections = [
-            {
-                "dfs_id": str(row["DFS_ID"]),
-                "name": row["Name"],
-                "position": row["Pos"],
-                "team": row["Team"],
-                "opponent": row["Opp"],
-                "salary": int(row["Salary"]),
-                "projection": round(float(row["Proj"]), 2),
-                "floor": round(float(row["Floor"]), 2),
-                "ceiling": round(float(row["Ceiling"]), 2),
-                "value": round(float(row["Value"]), 2),
-                "ownership": round(float(row["Own"]), 2),
-            }
-            for _, row in projections_df.iterrows()
-        ]
+        # Build projections list without iterrows — pre-cast columns once, then
+        # use to_dict('records') which allocates plain dicts (no per-row Series).
+        _pf = projections_df.assign(
+            dfs_id=projections_df["DFS_ID"].astype(str),
+            salary=projections_df["Salary"].astype(int),
+            projection=projections_df["Proj"].astype(float).round(2),
+            floor=projections_df["Floor"].astype(float).round(2),
+            ceiling=projections_df["Ceiling"].astype(float).round(2),
+            value=projections_df["Value"].astype(float).round(2),
+            ownership=projections_df["Own"].astype(float).round(2),
+        ).rename(columns={"Name": "name", "Pos": "position", "Team": "team", "Opp": "opponent"})
+        projections = _pf[
+            ["dfs_id", "name", "position", "team", "opponent",
+             "salary", "projection", "floor", "ceiling", "value", "ownership"]
+        ].to_dict("records")
 
         # Log projections to analytics DB for later accuracy reconciliation.
         # Runs silently — never blocks the response.

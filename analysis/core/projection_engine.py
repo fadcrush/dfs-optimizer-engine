@@ -372,34 +372,35 @@ class CanonicalNBAProjectionEngine:
                 lookback_days=self.dvp_lookback_days,
             )
 
-        scored_projection: list[float] = []
-        gl_l10_values: list[float] = []
+        # ── Vectorised projection scoring (replaces row-by-row iterrows) ─────
+        # One slugified name column is computed once and reused by the StdDev
+        # block below, reducing total slug work to a single pass.
+        df["_slug"] = df["Name"].astype(str).apply(_slugify)
 
-        for _, row in df.iterrows():
-            # Layer 1: explicit Base_Proj from CSV
-            base_proj = float(row.get("Base_Proj", 0.0)) if has_base else 0.0
+        # Layer 2: game-log L10 lookup (vectorised Series map)
+        _gl_map = {s: round(float(v[site_key]), 2) for s, v in gl_baseline.items()}
+        df["GL_L10"] = df["_slug"].map(_gl_map).fillna(0.0)
 
-            # Layer 2 lookup — game-log L10 average
-            slug = _slugify(str(row.get("Name", "")))
-            gl_entry = gl_baseline.get(slug)
-            gl_avg = float(gl_entry[site_key]) if gl_entry else 0.0
-            gl_l10_values.append(round(gl_avg, 2))
+        # Layer 1: user-supplied base projection
+        base_col = df["Base_Proj"].astype(float) if has_base else pd.Series(0.0, index=df.index)
 
-            if base_proj > 0:
-                # Layer 1 wins — keep the user-supplied value
-                scored_projection.append(base_proj)
-            elif gl_avg > 0:
-                # Layer 2: use game-log L10 average
-                scored_projection.append(gl_avg)
-            elif has_box:
-                # Layer 3: derive from box-score stat columns in the slate
-                scored_projection.append(score_nba_row(context.site, row))
-            else:
-                # No signal — zero; pool filter will drop if below floor
-                scored_projection.append(0.0)
+        # Layer 3: box-score derivation (still uses apply; called once per player)
+        if has_box:
+            box_col = df.apply(lambda r: float(score_nba_row(context.site, r)), axis=1)
+        else:
+            box_col = pd.Series(0.0, index=df.index)
 
-        df["Proj"] = pd.Series(scored_projection, index=df.index, dtype=float)
-        df["GL_L10"] = pd.Series(gl_l10_values, index=df.index, dtype=float)
+        # Priority chain (low → high): zero → box_score → gl_avg → base_proj
+        proj_col = box_col.copy()
+        proj_col = proj_col.mask(df["GL_L10"] > 0, df["GL_L10"])   # layer 2 overrides
+        if has_base:
+            proj_col = proj_col.mask(base_col > 0, base_col)         # layer 1 overrides all
+
+        df["Proj"] = proj_col.astype(float)
+
+        # Logging counters (vectorised)
+        scored_projection = df["Proj"].tolist()     # for n_base / n_gl below
+        gl_l10_values = df["GL_L10"].tolist()        # for n_gl below
 
         # ── Layer 4: Defense-vs-Player adjustment ─────────────────────────────
         # Use position-specific DvP when available (more granular); fall back
@@ -567,20 +568,22 @@ class CanonicalNBAProjectionEngine:
         # Ceiling = Proj + 1.5 × StdDev
         pos_col = next((c for c in ["Pos", "pos", "Position"] if c in df.columns), None)
 
-        std_devs: list[float] = []
-        for idx, row in df.iterrows():
-            slug = _slugify(str(row.get("Name", "")))
-            sd_entry = stddev_baseline.get(slug)
-            if sd_entry:
-                cv = sd_entry["cv"]
-            else:
-                raw_pos = str(row.get(pos_col, "") if pos_col else "")
-                pos = raw_pos.split("/")[0].strip().upper()
-                cv = _POSITION_DEFAULT_CV.get(pos, _POSITION_DEFAULT_CV_FALLBACK)
-            proj_val = float(df.at[idx, "Proj"])
-            std_devs.append(round(proj_val * cv, 3))
-
-        df["StdDev"] = pd.Series(std_devs, index=df.index, dtype=float)
+        # ── Vectorised StdDev (replaces row-by-row iterrows) ─────────────────
+        # Reuses df["_slug"] computed in the scoring block above.
+        _cv_map = {s: v["cv"] for s, v in stddev_baseline.items()}
+        cv_from_baseline = df["_slug"].map(_cv_map)  # NaN where player not in baseline
+        if pos_col:
+            pos_cv_series = (
+                df[pos_col].astype(str)
+                .str.split("/").str[0]
+                .str.strip().str.upper()
+                .map(_POSITION_DEFAULT_CV)
+                .fillna(_POSITION_DEFAULT_CV_FALLBACK)
+            )
+        else:
+            pos_cv_series = pd.Series(_POSITION_DEFAULT_CV_FALLBACK, index=df.index)
+        cv_series = cv_from_baseline.fillna(pos_cv_series)
+        df["StdDev"] = (df["Proj"] * cv_series).round(3)
         df["Floor"] = (df["Proj"] - df["StdDev"]).clip(lower=0).round(4)
         df["Ceiling"] = (df["Proj"] + 1.5 * df["StdDev"]).round(4)
         df["Value"] = (df["Proj"] / (df["Salary"] / 1000.0).replace(0, pd.NA)).fillna(0.0)
@@ -637,10 +640,7 @@ class CanonicalNBAProjectionEngine:
         safe_own = df["Own"].clip(lower=0.5)
         df["Leverage"] = (df["Proj"] / safe_own).round(3).clip(upper=30.0)
 
-        n_individual_cv = sum(
-            1 for _, row in df.iterrows()
-            if _slugify(str(row.get("Name", ""))) in stddev_baseline
-        )
+        n_individual_cv = int(cv_from_baseline.notna().sum())
         n_base = sum(1 for v in scored_projection if v > 0 and has_base)
         n_gl = sum(1 for gl, base in zip(gl_l10_values, scored_projection)
                    if gl > 0 and (not has_base or float(0) == base))

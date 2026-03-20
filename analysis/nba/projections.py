@@ -48,14 +48,10 @@ def apply_defensive_adjustments(baseline_df: pd.DataFrame) -> pd.DataFrame:
     defense_df = build_defense_table(odds)
     df = baseline_df.copy()
 
-    multipliers = []
-    for _, row in df.iterrows():
-        team = row.get("Team")
-        opp = row.get("Opp")
-        mult = defense_adjustment_for_matchup(team, opp, defense_df)
-        multipliers.append(mult)
-
-    df["Defense_Mult"] = multipliers
+    df["Defense_Mult"] = df.apply(
+        lambda r: defense_adjustment_for_matchup(r.get("Team"), r.get("Opp"), defense_df),
+        axis=1,
+    )
     df["Proj_Final"] = df["Base_Proj"] * df["Defense_Mult"]
     return df
 
