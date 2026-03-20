@@ -2,6 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from unittest.mock import MagicMock
+
+
+def pytest_configure(config):  # noqa: ARG001
+    """Install psycopg2 stub before any backend import triggers SQLAlchemy."""
+    if "psycopg2" not in sys.modules:
+        stub = MagicMock()
+        stub.__version__ = "2.9.0"
+        sys.modules["psycopg2"] = stub
+        sys.modules["psycopg2.extensions"] = MagicMock()
+        sys.modules["psycopg2.extras"] = MagicMock()
 
 import pytest
 from fastapi import FastAPI

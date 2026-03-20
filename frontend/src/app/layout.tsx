@@ -16,9 +16,16 @@ export const metadata = {
   description: 'Professional DFS optimizer platform',
 }
 
+// Inline script prevents flash of wrong theme before React hydrates
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem('dfs_edge_theme');document.documentElement.classList.add(t==='light'?'light':'dark');}catch(e){}})();`
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <head>
+        {/* Anti-FOUC: apply stored theme class before first paint */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className={inter.variable}>
         <Providers>
           <AppShell>{children}</AppShell>

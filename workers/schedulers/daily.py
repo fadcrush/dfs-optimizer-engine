@@ -192,7 +192,45 @@ def job_ingest_game_logs() -> None:
                         result.returncode, result.stderr.strip()[-500:])
     except Exception as exc:
         log.error("[scheduler] job_ingest_game_logs failed: %s", exc)
-def _upload_backup_to_cloud(local_path: Path) -> None:
+
+
+def job_reconcile_projections() -> None:
+    """Reconcile yesterday's projections against actual game-log scores.
+
+    Runs at 3:30 AM ET — 30 minutes after job_ingest_game_logs so box scores
+    are already in player_game_logs before we try to match them.
+
+    Fills in ``actual_pts`` and ``reconciled=TRUE`` on every unreconciled row
+    in projection_log that has a DFS_ID appearing in the previous night's
+    player_game_logs.  Logs MAE/RMSE so accuracy trends can be tracked.
+    """
+    from datetime import date as _date, timedelta
+    log.info("[scheduler] job_reconcile_projections starting")
+    try:
+        from backend.services.analytics_service import reconcile_projections  # type: ignore[import]
+    except ImportError:
+        try:
+            from services.analytics_service import reconcile_projections  # type: ignore[import]
+        except ImportError:
+            log.error("[scheduler] job_reconcile_projections: could not import analytics_service")
+            return
+
+    yesterday = _date.today() - timedelta(days=1)
+    for site in ("DK", "FD"):
+        try:
+            summary = reconcile_projections(yesterday, site)
+            if summary.get("reconciled", 0):
+                log.info(
+                    "[scheduler] Reconciled %s/%s — N=%d MAE=%.3f RMSE=%.3f",
+                    yesterday, site,
+                    summary["reconciled"],
+                    summary.get("mae", 0),
+                    summary.get("rmse", 0),
+                )
+            else:
+                log.info("[scheduler] No unreconciled projections for %s/%s", yesterday, site)
+        except Exception as exc:
+            log.warning("[scheduler] reconcile_projections failed for %s/%s: %s", yesterday, site, exc)
     """Upload a DuckDB backup to S3-compatible cloud storage.
 
     Environment variables (all optional; cloud upload is disabled by default):
@@ -379,6 +417,15 @@ def start_scheduler(timezone: str = "America/New_York") -> None:
         id="ingest_game_logs",
         replace_existing=True,
         name="Ingest NBA Game Logs",
+    )
+
+    # Projection accuracy reconciliation — 3:30 AM ET (30 min after game log ingest)
+    _scheduler.add_job(
+        job_reconcile_projections,
+        CronTrigger(hour=3, minute=30),
+        id="reconcile_projections",
+        replace_existing=True,
+        name="Reconcile Projection Accuracy",
     )
 
     # Nightly DuckDB backup — 4:00 AM ET (after game-log ingest)

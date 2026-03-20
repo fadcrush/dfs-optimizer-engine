@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { Moon, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import {
   AUTH_DISABLED,
@@ -10,6 +11,7 @@ import {
   getStoredUser,
   type StoredUser,
 } from '@/lib/auth'
+import { useTheme } from '@/hooks/useTheme'
 
 const NAV_ITEMS = [
   { href: '/',             label: 'Home'        },
@@ -56,6 +58,7 @@ export function NavBar() {
   const clock = useClock()
   const user = useCurrentUser()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [theme, toggleTheme] = useTheme()
 
   // Close mobile menu on route change
   useEffect(() => { setMenuOpen(false) }, [path])
@@ -132,6 +135,16 @@ export function NavBar() {
             </button>
           </div>
         )}
+
+        {/* Theme toggle */}
+        <button
+          onClick={toggleTheme}
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          className="w-7 h-7 flex items-center justify-center rounded bg-transparent border-0 text-[#94a3b8] hover:text-white cursor-pointer shrink-0 transition-colors"
+        >
+          {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+        </button>
 
         {/* Hamburger — mobile only */}
         <button
