@@ -5,8 +5,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
 export type AdminStats = {
   total_users: number
   pro_users: number
+  elite_users: number
   free_users: number
   new_users_30d: number
+  active_users_7d: number
   mrr: number
 }
 

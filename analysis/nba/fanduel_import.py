@@ -16,14 +16,7 @@ class FanDuelImporter:
     """Import and process FanDuel CSV exports"""
     
     def __init__(self):
-        self.player_mapping = {}
-        self.name_variations = {
-            # Common name variations
-            'Nikola Jokic': ['Nikola Jokić'],
-            'Luka Doncic': ['Luka Dončić'],
-            'Bogdan Bogdanovic': ['Bogdan Bogdanović'],
-            'Nikola Vucevic': ['Nikola Vučević'],
-        }
+        pass  # stateless — all methods work on DataFrames passed as arguments
     
     def import_csv(self, csv_path: str) -> pd.DataFrame:
         """

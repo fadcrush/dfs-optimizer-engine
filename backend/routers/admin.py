@@ -24,6 +24,7 @@ def admin_stats(
 ):
     """Return platform-level metrics: user counts and rough MRR."""
     thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
 
     total_users = db.query(func.count(User.id)).scalar() or 0
     pro_users = (
@@ -46,12 +47,21 @@ def admin_stats(
         db.query(func.count(User.id)).filter(User.tier == "elite").scalar() or 0
     )
     mrr = (pro_users - elite_users) * 29 + elite_users * 79
+    # Users who logged in within the last 7 days (retention signal)
+    active_users_7d = (
+        db.query(func.count(User.id))
+        .filter(User.last_login_at >= seven_days_ago)
+        .scalar()
+        or 0
+    )
 
     return {
         "total_users": total_users,
         "pro_users": pro_users,
+        "elite_users": elite_users,
         "free_users": free_users,
         "new_users_30d": new_users_30d,
+        "active_users_7d": active_users_7d,
         "mrr": mrr,
     }
 

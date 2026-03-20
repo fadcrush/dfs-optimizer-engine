@@ -121,7 +121,7 @@ export default function AdminPage() {
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-7 gap-4">
         <StatCard
           label="Total Users"
           value={stats?.total_users ?? '—'}
@@ -136,6 +136,13 @@ export default function AdminPage() {
           accent="bg-success/10 text-success"
         />
         <StatCard
+          label="Elite Users"
+          value={stats?.elite_users ?? '—'}
+          sub={stats ? `${((( stats.elite_users ?? 0) / Math.max(stats.total_users, 1)) * 100).toFixed(1)}% of total` : undefined}
+          icon={TrendingUp}
+          accent="bg-warning/10 text-warning"
+        />
+        <StatCard
           label="Free Users"
           value={stats?.free_users ?? '—'}
           icon={Users}
@@ -147,6 +154,13 @@ export default function AdminPage() {
           sub="pro×$29 + elite×$79"
           icon={DollarSign}
           accent="bg-warning/10 text-warning"
+        />
+        <StatCard
+          label="Active (7d)"
+          value={stats?.active_users_7d ?? '—'}
+          sub={stats ? `${((( stats.active_users_7d ?? 0) / Math.max(stats.total_users, 1)) * 100).toFixed(1)}% retention` : undefined}
+          icon={Users}
+          accent="bg-success/10 text-success"
         />
         <StatCard
           label="New (30d)"

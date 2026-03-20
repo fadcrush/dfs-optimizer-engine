@@ -161,8 +161,13 @@ class NBADataAggregator:
         # Add game pace (average of both teams)
         game_info['game_pace'] = game_info['pace']  # Simplified
         
-        # Add defensive rating (points allowed - simplified)
-        game_info['opp_def_rating'] = 112  # Default league average
+        # Add defensive rating: use opponent's Vegas implied total as a per-game
+        # proxy for points-allowed.  Falls back to the historic league average (112)
+        # when we have no Vegas data for a matchup.
+        implied_map = dict(zip(vegas_df['team'], vegas_df['implied_total']))
+        game_info['opp_def_rating'] = (
+            game_info['opponent'].map(implied_map).fillna(112.0)
+        )
         
         return game_info
     
