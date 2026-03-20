@@ -318,6 +318,7 @@ export default function OptimizerPage() {
   const [pipelineSteps, setPipelineSteps] = useState<PipelineSteps | null>(null)
   const [validating, setValidating] = useState(false)
   const [error, setError] = useState<{ message: string; raw?: string } | null>(null)
+  const [planGated, setPlanGated] = useState(false)
   const [validationStatus, setValidationStatus] = useState<string | null>(null)
 
   // Results state
@@ -497,6 +498,7 @@ export default function OptimizerPage() {
 
     setLoading(true)
     setError(null)
+    setPlanGated(false)
     setResult(null)
 
     // Capture run parameters
@@ -536,6 +538,7 @@ export default function OptimizerPage() {
       })
 
       if (!response.success) {
+        if (response.planGated) { setPlanGated(true); return }
         setError({
           message: 'Optimization failed. Check your CSV format and try again.',
           raw: response.error,
@@ -566,6 +569,7 @@ export default function OptimizerPage() {
     setPipelineLoading(true)
     setPipelineSteps(null)
     setError(null)
+    setPlanGated(false)
     setResult(null)
 
     // Player pool validation
@@ -603,6 +607,7 @@ export default function OptimizerPage() {
       })
 
       if (!response.success) {
+        if (response.planGated) { setPlanGated(true); return }
         setError({
           message: 'Full pipeline failed. Check your CSV format and try again.',
           raw: response.error,
@@ -992,8 +997,24 @@ export default function OptimizerPage() {
           />
         )}
 
+        {/* Plan-gate upgrade banner */}
+        {planGated && (
+          <div className="bg-warning-muted border border-warning/40 rounded-lg px-4 py-4 mb-5 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex-1">
+              <p className="text-sm font-bold text-warning mb-0.5">Pro plan required</p>
+              <p className="text-xs text-text-secondary">The optimizer is a Pro feature. Upgrade to unlock unlimited lineup generation, exposure controls, and EV modeling.</p>
+            </div>
+            <a
+              href="/billing"
+              className="shrink-0 px-4 py-2 rounded bg-warning text-white text-sm font-bold hover:bg-warning/90 transition-colors text-center no-underline"
+            >
+              Upgrade to Pro
+            </a>
+          </div>
+        )}
+
         {/* Error */}
-        {error && <ErrorDisplay message={error.message} rawError={error.raw} />}
+        {error && !planGated && <ErrorDisplay message={error.message} rawError={error.raw} />}
 
         {/* Skeleton while optimizer is running */}
         {(loading || pipelineLoading) && !result && (

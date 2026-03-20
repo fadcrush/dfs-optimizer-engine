@@ -137,7 +137,7 @@ export async function runFDOptimizer(
     projectionOverrides?: Record<string, number>
     lockedPlayers?: string[]
   }
-): Promise<{ success: boolean; data?: FDOptimizerResponse; error?: string }> {
+): Promise<{ success: boolean; data?: FDOptimizerResponse; error?: string; planGated?: boolean }> {
   const form = new FormData()
   form.append('file', file)
 
@@ -167,7 +167,7 @@ export async function runFDOptimizer(
   const res = await fetch(url.toString(), { method: 'POST', body: form })
   if (!res.ok) {
     const errorText = await getApiErrorMessage(res)
-    return { success: false, error: errorText }
+    return { success: false, error: errorText, planGated: res.status === 403 }
   }
   const data = (await res.json()) as FDOptimizerResponse
   return { success: true, data }
@@ -209,7 +209,7 @@ export async function runFullPipeline(
     projectionOverrides?: Record<string, number>
     lockedPlayers?: string[]
   }
-): Promise<{ success: boolean; data?: FullPipelineResponse; error?: string }> {
+): Promise<{ success: boolean; data?: FullPipelineResponse; error?: string; planGated?: boolean }> {
   const form = new FormData()
   form.append('file', file)
 
@@ -245,7 +245,7 @@ export async function runFullPipeline(
   const res = await fetch(url.toString(), { method: 'POST', body: form })
   if (!res.ok) {
     const errMsg = await getApiErrorMessage(res)
-    return { success: false, error: errMsg }
+    return { success: false, error: errMsg, planGated: res.status === 403 }
   }
   const data = (await res.json()) as FullPipelineResponse
   return { success: true, data }
