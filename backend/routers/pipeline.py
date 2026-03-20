@@ -29,7 +29,7 @@ from analysis.core.exposure_optimizer import ExposureConfig
 from analysis.core.orchestrator import run_dfs_pipeline
 from analysis.core.schemas import ProjectionContext
 from analysis.nba.optimizer import assign_lineup_slots
-from services.auth import get_current_user
+from services.auth import require_plan
 from services.file_service import save_lineup_file, save_slate_file
 
 log = logging.getLogger(__name__)
@@ -161,7 +161,7 @@ async def run_full_pipeline(
     # Player-pool overrides from the UI player-pool table
     projection_overrides: str = "",  # JSON: {"LeBron James": 42.5, ...}
     locked_players: str = "",        # comma-separated: force into every lineup
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_plan("pro")),
 ):
     """
     One-click pipeline: upload slate → injures → props → project → own → optimize → download.
