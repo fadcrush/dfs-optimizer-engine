@@ -77,7 +77,7 @@ async def run(
     file: UploadFile = File(...),
     site: str = "DK",
     sport: str = "NBA",
-    current_user=Depends(require_plan("pro")),
+    current_user=Depends(enforce_daily_run_limit()),
     db: Optional[Session] = Depends(optional_db),
 ):
     """Alias for generate-from-upload — single-step upload + project."""

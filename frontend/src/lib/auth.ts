@@ -77,6 +77,15 @@ export async function getApiErrorMessage(res: Response): Promise<string> {
   const isAuthEndpoint = /\/auth\/(login|signup)\/?$/i.test(res.url)
   if (res.status === 401 && !isAuthEndpoint) return 'Authentication required. Sign in and retry.'
   if (res.status === 403) return 'Your account does not have access to this feature.'
+  if (res.status === 429) {
+    // Rate-limit: propagate the server detail so the caller can detect it
+    try {
+      const body = await res.clone().json()
+      return body.detail ?? 'Daily limit reached. Upgrade to Pro for unlimited runs.'
+    } catch {
+      return 'Daily limit reached. Upgrade to Pro for unlimited runs.'
+    }
+  }
 
   try {
     const body = await res.clone().json()

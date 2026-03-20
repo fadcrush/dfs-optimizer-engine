@@ -271,7 +271,7 @@ export async function runProjections(
   file: File,
   site: 'DK' | 'FD' = 'DK',
   sport: 'NBA' | 'NFL' = 'NBA',
-): Promise<{ success: boolean; data?: ProjectionsResponse; error?: string }> {
+): Promise<{ success: boolean; data?: ProjectionsResponse; error?: string; rateLimited?: boolean }> {
   const form = new FormData()
   form.append('file', file)
 
@@ -282,7 +282,7 @@ export async function runProjections(
   const res = await fetch(url.toString(), { method: 'POST', body: form })
   if (!res.ok) {
     const errMsg = await getApiErrorMessage(res)
-    return { success: false, error: errMsg }
+    return { success: false, error: errMsg, rateLimited: res.status === 429 }
   }
   const raw = await res.json()
   // Backend returns { success, projections, stats, algorithm, ... }

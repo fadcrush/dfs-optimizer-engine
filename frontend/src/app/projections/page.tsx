@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
+import Link from 'next/link'
 import { runProjections, downloadFile, toCsv, type PlayerProjection } from '@/lib/api'
 import { formatSalary } from '@/lib/utils'
 import { useLatestSlate } from '@/hooks/useLatestSlate'
@@ -60,6 +61,7 @@ export default function ProjectionsPage() {
   const [sport, setSport] = useState<'NBA' | 'NFL'>('NBA')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [rateLimited, setRateLimited] = useState(false)
   const [projections, setProjections] = useState<PlayerProjection[]>([])
   const [stats, setStats] = useState<{ total_players: number; avg_projection: number; site: string } | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('projection')
@@ -77,11 +79,15 @@ export default function ProjectionsPage() {
     autoRanRef.current = slateFile.name
     setLoading(true)
     setError(null)
+    setRateLimited(false)
     setProjections([])
     setStats(null)
     runProjections(slateFile, site, sport).then(res => {
       setLoading(false)
-      if (!res.success || !res.data) { setError(res.error ?? 'Unknown error'); return }
+      if (!res.success || !res.data) {
+        if (res.rateLimited) { setRateLimited(true); return }
+        setError(res.error ?? 'Unknown error'); return
+      }
       setProjections(res.data.projections)
       setStats(res.data.stats)
     })
@@ -115,11 +121,13 @@ export default function ProjectionsPage() {
     if (!file) return
     setLoading(true)
     setError(null)
+    setRateLimited(false)
     setProjections([])
     setStats(null)
     const res = await runProjections(file, site, sport)
     setLoading(false)
     if (!res.success || !res.data) {
+      if (res.rateLimited) { setRateLimited(true); return }
       setError(res.error ?? 'Unknown error')
       return
     }
@@ -224,8 +232,24 @@ export default function ProjectionsPage() {
           </div>
         </div>
 
-        {/* Error */}
-        {error && (
+        {/* Rate-limit upgrade banner */}
+        {rateLimited && (
+          <div className="bg-warning-muted border border-warning/40 rounded-lg px-4 py-4 mb-5 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex-1">
+              <p className="text-sm font-bold text-warning mb-0.5">Daily projection limit reached</p>
+              <p className="text-xs text-text-secondary">Free accounts are limited to 5 projection runs per day. Upgrade to Pro for unlimited runs.</p>
+            </div>
+            <Link
+              href="/billing"
+              className="shrink-0 px-4 py-2 rounded bg-warning text-white text-sm font-bold hover:bg-warning/90 transition-colors text-center"
+            >
+              Upgrade to Pro
+            </Link>
+          </div>
+        )}
+
+        {/* Generic error */}
+        {error && !rateLimited && (
           <div className="bg-danger-muted border border-danger/40 rounded-lg px-4 py-3 text-danger mb-5">
             {error}
           </div>
