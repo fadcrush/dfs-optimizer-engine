@@ -11,7 +11,7 @@ import io
 
 from database.db import get_db, DATABASE_URL
 from models.user import User
-from services.auth import get_current_user, require_plan
+from services.auth import get_current_user, require_plan, enforce_daily_run_limit
 from services.file_service import get_file_path, save_projection_file, save_slate_file
 from services.projection_service import generate_projections, projections_to_csv
 
@@ -50,10 +50,14 @@ async def generate(
     slate_file_name: str,
     site: str = "FD",
     sport: str = "NBA",
-    current_user=Depends(get_current_user),
+    current_user=Depends(enforce_daily_run_limit()),
     db: Optional[Session] = Depends(optional_db),
 ):
-    """Generate projections for an uploaded slate."""
+    """Generate projections for an uploaded slate.
+
+    Free-tier users are limited to FREE_DAILY_RUNS (default 5) runs per UTC day.
+    Pro/elite/admin users are unlimited.
+    """
     user_id = _user_id(current_user)
 
     slate_path = get_file_path(slate_file_name, "slate", user_id)

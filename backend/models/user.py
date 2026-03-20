@@ -47,6 +47,10 @@ class User(Base):
     lineups_generated = Column(Integer, default=0)
     slates_processed = Column(Integer, default=0)
 
+    # Per-day run counter (free-tier rate limiting)
+    daily_runs_used = Column(Integer, default=0)
+    daily_runs_reset_date = Column(String, nullable=True)  # ISO date string "YYYY-MM-DD" (UTC)
+
     # Admin flag
     is_admin = Column(Boolean, default=False)
 
@@ -68,5 +72,7 @@ class User(Base):
             "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
             "lineups_generated": self.lineups_generated,
             "slates_processed": self.slates_processed,
+            "daily_runs_used": self.daily_runs_used,
+            "daily_runs_reset_date": self.daily_runs_reset_date,
             "is_admin": self.is_admin,
         }

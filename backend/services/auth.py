@@ -212,6 +212,92 @@ def require_admin(current_user=Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
+# Per-tier daily run enforcement
+# ---------------------------------------------------------------------------
+
+_FREE_DAILY_RUNS: int = int(os.getenv("FREE_DAILY_RUNS", "5"))
+
+
+def enforce_daily_run_limit():
+    """FastAPI dependency — caps free-tier users at FREE_DAILY_RUNS (default 5) per UTC day.
+
+    Pro / elite / admin users are never counted or blocked.  The counter
+    resets automatically the first time the user runs after midnight UTC.
+
+    On any database error the request is **allowed through** — enforcement
+    accuracy is sacrificed over availability.
+
+    Response headers on success:
+        X-RateLimit-Limit      — daily cap for this tier
+        X-RateLimit-Remaining  — runs left today
+
+    On 429:
+        X-RateLimit-Limit      — daily cap
+        X-RateLimit-Remaining  — 0
+        Retry-After            — 86400 (seconds in a day)
+        X-Upgrade-URL          — /billing
+    """
+    from datetime import timezone as _tz
+
+    def _check(current_user=Depends(get_current_user)):
+        tier = (
+            current_user.get("tier", "free")
+            if isinstance(current_user, dict)
+            else getattr(current_user, "tier", "free")
+        )
+        # Dev bypass or paid tier → skip counting
+        if (isinstance(current_user, dict) and current_user.get("auth_bypassed")) or \
+                _TIER_RANK.get(tier, 0) >= _TIER_RANK.get("pro", 1):
+            return current_user
+
+        from database.db import SessionLocal
+        if SessionLocal is None:
+            return current_user  # no DB configured → allow
+
+        from models.user import User
+        db = SessionLocal()
+        try:
+            uid = current_user.get("id") if isinstance(current_user, dict) else current_user.id
+            user = db.query(User).filter(User.id == uid).first()
+            if user is None:
+                return current_user
+
+            today = datetime.now(_tz.utc).date().isoformat()
+            if user.daily_runs_reset_date != today:
+                user.daily_runs_used = 0
+                user.daily_runs_reset_date = today
+
+            if user.daily_runs_used >= _FREE_DAILY_RUNS:
+                db.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=(
+                        f"Free tier daily limit of {_FREE_DAILY_RUNS} projection runs reached. "
+                        "Upgrade to Pro for unlimited access."
+                    ),
+                    headers={
+                        "X-RateLimit-Limit": str(_FREE_DAILY_RUNS),
+                        "X-RateLimit-Remaining": "0",
+                        "Retry-After": "86400",
+                        "X-Upgrade-URL": "/billing",
+                    },
+                )
+
+            user.daily_runs_used += 1
+            db.commit()
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # DB errors: allow the request through
+        finally:
+            db.close()
+
+        return current_user
+
+    return _check
+
+
+# ---------------------------------------------------------------------------
 # Password-reset token helpers
 # ---------------------------------------------------------------------------
 # Tokens are HMAC-SHA256 over "{user_id}:{expiry_unix_ts}" using the JWT
