@@ -178,6 +178,7 @@ export default function EVModelingPage() {
   const [site, setSite] = useState<'DK' | 'FD'>('DK')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [rateLimited, setRateLimited] = useState(false)
   const [players, setPlayers] = useState<EVPlayer[]>([])
   const [tab, setTab] = useState<FilterTab>('All')
   const [search, setSearch] = useState('')
@@ -205,9 +206,11 @@ export default function EVModelingPage() {
   const handleRunEV = async (f: File) => {
     setLoading(true)
     setError(null)
+    setRateLimited(false)
     try {
       const res = await runProjections(f, site, 'NBA')
       if (!res.success || !res.data) {
+        if (res.rateLimited) { setRateLimited(true); return }
         setError(res.error ?? 'Projection failed')
         return
       }
@@ -293,7 +296,19 @@ export default function EVModelingPage() {
           </button>
         </div>
 
-        {error && (
+        {rateLimited && (
+          <div className="bg-[#451a03] border border-[#f59e0b]/50 rounded-lg px-4 py-3 mb-4 flex items-start gap-3">
+            <span className="text-[#fbbf24] text-base mt-0.5">&#9888;</span>
+            <div>
+              <p className="m-0 text-sm font-bold text-[#fde68a]">Daily projection limit reached</p>
+              <p className="m-0 mt-1 text-xs text-[#fde68a]/80">Free accounts get 5 projection runs per day. Upgrade to Pro for unlimited EV analysis.</p>
+              <a href="/billing" className="inline-block mt-2 px-3 py-1.5 rounded text-xs font-bold bg-[#f59e0b] text-[#1c1917] no-underline hover:bg-[#fbbf24] transition-colors">
+                Upgrade to Pro &rarr;
+              </a>
+            </div>
+          </div>
+        )}
+        {error && !rateLimited && (
           <div className="bg-danger-muted border border-danger/40 rounded-lg px-4 py-2.5 mb-4 text-danger text-sm">
             {error}
           </div>

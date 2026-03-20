@@ -415,6 +415,7 @@ export default function SimulationPage() {
   const [contestType, setContestType] = useState('LARGE GPP')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [planGated, setPlanGated] = useState(false)
   const [result, setResult] = useState<SimResult | null>(null)
 
   // Slate auto-load
@@ -428,6 +429,7 @@ export default function SimulationPage() {
     autoRanRef.current = slateFile.name
     setLoading(true)
     setError(null)
+    setPlanGated(false)
     runFDOptimizer(slateFile, {
       site,
       numLineups: nLineups,
@@ -436,7 +438,10 @@ export default function SimulationPage() {
       maxExposure: 0.6,
     }).then(res => {
       setLoading(false)
-      if (!res.success || !res.data) { setError(res.error ?? 'Simulation failed'); return }
+      if (!res.success || !res.data) {
+        if (res.planGated) { setPlanGated(true); return }
+        setError(res.error ?? 'Simulation failed'); return
+      }
       const PLAYER_SLOTS = ['PG', 'PG_2', 'SG', 'SG_2', 'SF', 'SF_2', 'PF', 'PF_2', 'C', 'G', 'F', 'UTIL']
       const lineups: SimLineup[] = (res.data.lineups ?? []).map((lu, i) => {
         const players: string[] = PLAYER_SLOTS
@@ -467,6 +472,7 @@ export default function SimulationPage() {
     if (!slate) return
     setLoading(true)
     setError(null)
+    setPlanGated(false)
 
     try {
       const res = await runFDOptimizer(slate, {
@@ -478,6 +484,7 @@ export default function SimulationPage() {
       })
 
       if (!res.success || !res.data) {
+        if (res.planGated) { setPlanGated(true); return }
         setError(res.error ?? 'Simulation failed')
         return
       }
@@ -527,7 +534,19 @@ export default function SimulationPage() {
           </p>
         </div>
 
-        {error && (
+        {planGated && (
+          <div className="bg-[#451a03] border border-[#f59e0b]/50 rounded-lg px-4 py-3 mb-4 flex items-start gap-3">
+            <span className="text-[#fbbf24] text-base mt-0.5">&#9888;</span>
+            <div>
+              <p className="m-0 text-sm font-bold text-[#fde68a]">Pro plan required</p>
+              <p className="m-0 mt-1 text-xs text-[#fde68a]/80">The Simulation engine is a Pro feature. Upgrade to unlock Monte Carlo lineup simulation.</p>
+              <a href="/billing" className="inline-block mt-2 px-3 py-1.5 rounded text-xs font-bold bg-[#f59e0b] text-[#1c1917] no-underline hover:bg-[#fbbf24] transition-colors">
+                Upgrade to Pro &rarr;
+              </a>
+            </div>
+          </div>
+        )}
+        {error && !planGated && (
           <div className="bg-danger-muted border border-danger/40 rounded-lg px-4 py-2.5 mb-4 text-danger text-sm">
             {error}
           </div>
