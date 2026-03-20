@@ -111,17 +111,17 @@ class ProjectionPipeline:
             results['stats']['total_projections'] = len(projections)
             
             # Step 4: Load salaries and calculate value
-            logger.info("\n[4/6] Loading salaries and calculating value...")
-            projections = self._add_salaries(projections, target_date, site)
-            
-            # Step 5: Add ownership projections
-            logger.info("\n[4/6] Loading FanDuel data and calculating value...")
+            logger.info("\n[4/6] Loading FanDuel salary data...")
             projections = self._add_fanduel_data(projections, target_date, site)
-            
+
             # Fallback to estimated salaries if no FanDuel data
             if 'salary' not in projections.columns or projections['salary'].isna().all():
                 projections = self._add_salaries(projections, target_date, site)
-            
+
+            # Step 5: Add ownership projections  (H4: was never called)
+            logger.info("\n[5/6] Projecting ownership...")
+            projections = self._add_ownership_projections(projections)
+
             # Step 6: Export in multiple formats
             logger.info("\n[6/6] Exporting projections...")
             export_files = self._export_projections(projections, target_date, site)
@@ -306,34 +306,6 @@ class ProjectionPipeline:
         
         return projections
 
-    
-    def _add_fanduel_data(
-        self,
-        projections: pd.DataFrame,
-        target_date: str,
-        site: str
-    ) -> pd.DataFrame:
-        """Add real FanDuel data if CSV exists"""
-        from .fanduel_import import FanDuelImporter
-        
-        # Look for FanDuel CSV
-        fd_csv = self.output_dir.parent / 'fanduel' / f'{site}_{target_date}.csv'
-        
-        if fd_csv.exists():
-            logger.info(f"  -> Loading FanDuel data from {fd_csv}")
-            importer = FanDuelImporter()
-            fd_data = importer.import_csv(str(fd_csv))
-            projections = importer.merge_with_projections(projections, fd_data)
-            logger.info("  -> Merged with FanDuel data")
-        else:
-            logger.warning(f"  -> FanDuel CSV not found at {fd_csv}")
-            logger.warning("  -> Using estimated salaries")
-        
-        return projections
-    
-    def _add_salaries(self, projections: pd.DataFrame, target_date: str, site: str) -> pd.DataFrame:
-        """Add DFS salaries"""
-        # ... existing code ...
     def _add_salaries(self, projections: pd.DataFrame, target_date: str, site: str) -> pd.DataFrame:
         """Add DFS salaries"""
         salary_file = self.output_dir.parent / 'salaries' / f'{site}_{target_date}.csv'
@@ -401,7 +373,9 @@ class ProjectionPipeline:
             upload_df.to_csv(upload_file, index=False)
             files['upload'] = str(upload_file)
             logger.info(f"  OK Upload format: {upload_file}")
-    
+
+        return files  # C3: was missing — caller receives None without this
+
     def _save_raw_data(self, data: Dict, target_date: str):
         """Save raw data for debugging"""
         raw_dir = self.output_dir / 'raw' / target_date

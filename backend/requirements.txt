@@ -20,6 +20,7 @@ alembic==1.13.1
 # Authentication & Security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+argon2-cffi>=21.3.0
 slowapi>=0.1.9
 
 # Data Processing (you already have these, but good to list)
