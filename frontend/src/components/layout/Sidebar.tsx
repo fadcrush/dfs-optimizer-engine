@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, Database, BarChart2, Zap, TrendingUp,
-  Shuffle, ArrowLeftRight, LineChart, Activity,
+  Shuffle, ArrowLeftRight, LineChart, Activity, CreditCard,
   ChevronLeft, Bell, Moon, Sun, Menu, Search, Settings, LogOut, Shield,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
@@ -24,6 +24,7 @@ const NAV_ITEMS = [
   { href: '/analytics',   label: 'Analytics',   icon: LineChart },
   { href: '/metrics',     label: 'Metrics',     icon: Activity },
   { href: '/settings',    label: 'Settings',    icon: Settings },
+  { href: '/billing',     label: 'Billing',     icon: CreditCard },
 ]
 
 export function Sidebar({

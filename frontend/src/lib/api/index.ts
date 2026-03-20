@@ -424,7 +424,7 @@ export async function lateSwap(
     w_own?: number        // scoring weight for ownership (0–1)
     contest_type?: 'balanced' | 'cash' | 'gpp' | 'tournament'
   }
-): Promise<{ success: boolean; data?: LateSwapResponse; error?: string }> {
+): Promise<{ success: boolean; data?: LateSwapResponse; error?: string; planGated?: boolean }> {
   const form = new FormData()
   form.append('file', file)
 
@@ -456,7 +456,7 @@ export async function lateSwap(
   const res = await fetch(url.toString(), { method: 'POST', body: form })
   if (!res.ok) {
     const errMsg = await getApiErrorMessage(res)
-    return { success: false, error: errMsg }
+    return { success: false, error: errMsg, planGated: res.status === 403 }
   }
   const data = (await res.json()) as LateSwapResponse
   return { success: true, data }
@@ -506,7 +506,7 @@ export async function batchLateSwap(
     contest_type?: 'balanced' | 'cash' | 'gpp' | 'tournament'
     diversity_factor?: number  // 0–1, default 0.3
   }
-): Promise<{ success: boolean; data?: BatchLateSwapResponse; error?: string }> {
+): Promise<{ success: boolean; data?: BatchLateSwapResponse; error?: string; planGated?: boolean }> {
   const form = new FormData()
   form.append('file', file)
 
@@ -527,7 +527,7 @@ export async function batchLateSwap(
   const res = await fetch(url.toString(), { method: 'POST', body: form })
   if (!res.ok) {
     const errMsg = await getApiErrorMessage(res)
-    return { success: false, error: errMsg }
+    return { success: false, error: errMsg, planGated: res.status === 403 }
   }
   const data = (await res.json()) as BatchLateSwapResponse
   return { success: true, data }

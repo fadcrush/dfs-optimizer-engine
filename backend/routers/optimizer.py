@@ -550,7 +550,7 @@ async def late_swap(
     w_own: float | None = None,
     # ── Contest type: balanced | cash | gpp | tournament ──
     contest_type: str | None = None,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_plan("pro")),
 ):
     """
     Late Swap endpoint.
@@ -934,7 +934,7 @@ async def batch_late_swap(
     contest_type: str | None = None,
     # ── Multi-lineup diversity ────────────────────────────────────────────────
     diversity_factor: float = 0.3,   # 0 = no diversity penalty; 1 = max penalty
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_plan("pro")),
 ):
     """
     Batch Late Swap

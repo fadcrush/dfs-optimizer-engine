@@ -45,10 +45,10 @@ def isolated_upload_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
 
 @pytest.fixture
 def make_authed_client(isolated_upload_dirs: Path):
-    def _make(router, user_id: str = 'test-user') -> TestClient:
+    def _make(router, user_id: str = 'test-user', tier: str = 'pro') -> TestClient:
         app = FastAPI()
         app.include_router(router)
-        app.dependency_overrides[get_current_user] = lambda: {'id': user_id}
+        app.dependency_overrides[get_current_user] = lambda: {'id': user_id, 'tier': tier}
         return TestClient(app, raise_server_exceptions=False)
 
     return _make

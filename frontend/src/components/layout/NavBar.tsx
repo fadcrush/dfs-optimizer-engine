@@ -126,6 +126,26 @@ export function NavBar() {
                 {user.full_name?.trim() || user.email}
               </span>
             )}
+            {user && (() => {
+              const tier = user.tier ?? 'free'
+              const tierLabel = tier === 'admin' ? 'Admin' : tier === 'elite' ? 'Elite' : tier === 'pro' ? 'Pro' : 'Free'
+              const tierCls = tier === 'admin'
+                ? 'bg-[#7f1d1d] text-[#fca5a5]'
+                : tier === 'elite'
+                ? 'bg-[#3b0764] text-[#c084fc]'
+                : tier === 'pro'
+                ? 'bg-[#1e3a5f] text-[#60a5fa]'
+                : 'bg-[#451a03] text-[#fbbf24]'
+              return (
+                <Link
+                  href="/billing"
+                  title="View billing & plan"
+                  className={`hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold no-underline whitespace-nowrap transition-opacity hover:opacity-80 ${tierCls}`}
+                >
+                  {tierLabel}
+                </Link>
+              )
+            })()}
             <button
               onClick={!AUTH_DISABLED ? handleSignOut : undefined}
               title={user ? `Signed in as ${user.email}` : 'Local dev'}

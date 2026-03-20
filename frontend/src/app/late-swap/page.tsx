@@ -942,6 +942,9 @@ export default function LateSwapPage() {
   const [batchResult, setBatchResult] = useState<BatchLateSwapResponse | null>(null)
   const [batchError, setBatchError] = useState<string | null>(null)
 
+  // Plan gate — set true when backend returns 403 (Pro required)
+  const [planGated, setPlanGated] = useState(false)
+
   // Swap result comparisons: lineupIdx → comparison data
   const [swapComparisons, setSwapComparisons] = useState<Map<number, LineupSwapComparison>>(new Map())
 
@@ -1312,6 +1315,7 @@ export default function LateSwapPage() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setPlanGated(false)
 
     try {
       const res = await lateSwap(file, {
@@ -1326,6 +1330,7 @@ export default function LateSwapPage() {
         contest_type: contestType === 'balanced' ? undefined : contestType,
       })
       if (!res.success || !res.data) {
+        if (res.planGated) { setPlanGated(true); return }
         setError(res.error ?? 'Late swap failed')
         return
       }
@@ -1776,6 +1781,7 @@ export default function LateSwapPage() {
     setBatchLoading(true)
     setBatchResult(null)
     setBatchError(null)
+    setPlanGated(false)
     try {
       const res = await batchLateSwap(file, {
         site,
@@ -1789,6 +1795,7 @@ export default function LateSwapPage() {
         diversity_factor: diversityFactor,
       })
       if (!res.success || !res.data) {
+        if (res.planGated) { setPlanGated(true); return }
         setBatchError(res.error ?? 'Batch swap failed')
         return
       }
@@ -2106,6 +2113,19 @@ export default function LateSwapPage() {
             </>
           )}
         </div>
+
+        {planGated && (
+          <div className="bg-[#451a03] border border-[#f59e0b]/50 rounded-lg px-4 py-3 flex items-start gap-3">
+            <span className="text-[#fbbf24] text-base mt-0.5">&#9888;</span>
+            <div>
+              <p className="m-0 text-sm font-bold text-[#fde68a]">Pro plan required</p>
+              <p className="m-0 mt-1 text-xs text-[#fde68a]/80">The Late Swap engine is a Pro feature. Upgrade to unlock single and batch swap operations.</p>
+              <a href="/billing" className="inline-block mt-2 px-3 py-1.5 rounded text-xs font-bold bg-[#f59e0b] text-[#1c1917] no-underline hover:bg-[#fbbf24] transition-colors">
+                Upgrade to Pro &rarr;
+              </a>
+            </div>
+          </div>
+        )}
 
         {!hasProjectionSlate && (
           <div className="bg-[#450a0a] border border-danger/40 rounded-lg px-4 py-3 text-sm text-[#fca5a5]">
