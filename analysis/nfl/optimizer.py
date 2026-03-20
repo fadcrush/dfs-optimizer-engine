@@ -199,7 +199,7 @@ class NFLOptimizer:
                 col_map[col] = "Position"
             elif upper == "SALARY":
                 col_map[col] = "Salary"
-            elif upper in ("PROJECTION", "FPTS", "PROJECTED_FPTS"):
+            elif upper in ("PROJECTION", "PROJ", "FPTS", "PROJECTED_FPTS"):
                 col_map[col] = "Projection"
             elif upper in ("TEAM", "TEAMABBREV", "TEAM ABBREV"):
                 col_map[col] = "Team"
@@ -207,6 +207,8 @@ class NFLOptimizer:
                 col_map[col] = "DFS_ID"
 
         df = df.rename(columns=col_map).copy()
+        # Drop duplicate column names produced when both "Proj" and "Projection" exist
+        df = df.loc[:, ~df.columns.duplicated()]
 
         for required in ("Name", "Position", "Salary", "Projection"):
             if required not in df.columns:

@@ -191,14 +191,16 @@ class NFLProjectionEngine:
         site = (getattr(context, "site", None) or "DK").upper()
         mults = _FD_MULTIPLIERS if site == "FD" else _DK_MULTIPLIERS
 
-        df["Projection"] = df.apply(
+        df["Proj"] = df.apply(
             lambda row: self._calc_pts(row, mults, site), axis=1
         )
+        # Keep "Projection" alias so NFLOptimizer._prepare() also works
+        df["Projection"] = df["Proj"]
 
-        # Value (Projection / Salary * 1000)
+        # Value (Proj / Salary * 1000)
         if "Salary" in df.columns:
             df["Value"] = df.apply(
-                lambda row: (row["Projection"] / row["Salary"] * 1000)
+                lambda row: (row["Proj"] / row["Salary"] * 1000)
                 if row.get("Salary", 0) > 0
                 else 0.0,
                 axis=1,

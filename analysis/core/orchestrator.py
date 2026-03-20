@@ -282,7 +282,7 @@ def run_dfs_pipeline(
                 row["TotalSalary"] = lu.total_salary
                 row["Proj"] = lu.total_projection
                 for sl in lu.slots:
-                    row[sl.slot_name] = sl.player_name
+                    row[sl.slot] = sl.name
                 nfl_rows.append(row)
             lineups_df = pd.DataFrame(nfl_rows)
             result["lineups_df"] = lineups_df
