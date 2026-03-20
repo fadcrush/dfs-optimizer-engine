@@ -326,7 +326,8 @@ def job_retrain_ownership_model() -> None:
     """
     Retrain the GBR ownership model from accumulated ownership_history data.
     Runs weekly on Sunday at 01:00 ET.  Requires ≥300 training rows; skips
-    silently if the threshold isn’t met yet.    """    """
+    silently if the threshold isn't met yet.
+    """
     log.info("[scheduler] job_retrain_ownership_model starting")
     try:
         from analysis.nba.ownership_v2 import train_ownership_model

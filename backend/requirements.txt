@@ -23,6 +23,10 @@ passlib[bcrypt]==1.7.4
 argon2-cffi>=21.3.0
 slowapi>=0.1.9
 
+# Scheduling
+apscheduler>=3.10.0
+stripe>=5.0.0
+
 # Data Processing (you already have these, but good to list)
 pandas
 numpy
