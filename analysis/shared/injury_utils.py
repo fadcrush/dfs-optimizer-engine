@@ -144,23 +144,21 @@ def match_injury_status(
     if injury_df.empty:
         return df
 
-    # Build slug → {status, detail} map from DB
+    # Build slug → lookup from DB (vectorised; no iterrows)
     injury_df = injury_df.copy()
     id_col = "player_id" if "player_id" in injury_df.columns else detect_name_col(injury_df)
     injury_df["_slug"] = injury_df[id_col].apply(slug)
-    injury_map = injury_df.set_index("_slug")[["status", "detail"]].to_dict("index")
+    inj_deduped = injury_df.drop_duplicates("_slug").set_index("_slug")
 
-    # Only fill rows where InjuryStatus is currently empty (preserve explicit values)
-    for i, row in df.iterrows():
-        if str(row["InjuryStatus"]).strip():
-            continue
-        s = slug(str(row.get(name_col, "")))
-        entry = injury_map.get(s, {})
-        if entry.get("status"):
-            df.at[i, "InjuryStatus"] = str(entry["status"])
-        if entry.get("detail"):
-            df.at[i, "InjuryDetail"] = str(entry["detail"])
+    # Add temp slug column; map status/detail; fill blanks only (preserve explicit values)
+    df["_slug"] = df[name_col].astype(str).apply(slug)
+    fill_status = df["_slug"].map(inj_deduped["status"].to_dict()).fillna("")
+    fill_detail = df["_slug"].map(inj_deduped["detail"].to_dict()).fillna("")
 
+    mask = df["InjuryStatus"].str.strip() == ""
+    df.loc[mask & (fill_status != ""), "InjuryStatus"] = fill_status[mask & (fill_status != "")]
+    df.loc[mask & (fill_detail != ""), "InjuryDetail"] = fill_detail[mask & (fill_detail != "")]
+    df = df.drop(columns=["_slug"])
     return df
 
 
@@ -218,14 +216,15 @@ def build_injury_summary(
     id_col = "player_id" if "player_id" in injury_df.columns else detect_name_col(injury_df)
     injury_df = injury_df.copy()
     injury_df["_slug"] = injury_df[id_col].apply(slug)
-    injury_map = {}
-    for _, row in injury_df.iterrows():
-        injury_map[row["_slug"]] = {
-            "name": str(row.get("player_name", row.get(id_col, ""))),
-            "status": str(row.get("status", "")).upper(),
-            "detail": str(row.get("detail", "")),
-            "team": str(row.get("team", "")),
+    injury_map = {
+        r["_slug"]: {
+            "name": str(r.get("player_name", r.get(id_col, ""))),
+            "status": str(r.get("status", "")).upper(),
+            "detail": str(r.get("detail", "")),
+            "team": str(r.get("team", "")),
         }
+        for r in injury_df.drop_duplicates("_slug").to_dict("records")
+    }
 
     # Match player names
     player_slugs = {slug(n): n for n in player_names}
