@@ -15,7 +15,7 @@ export default function PrivacyPage() {
         <p className="text-xs text-text-muted mb-8">Effective date: {EFFECTIVE_DATE}</p>
 
         <Section title="1. Who We Are">
-          <p>DFS Edge Pro ("we", "us", or "our") is a professional daily fantasy sports analytics platform. Our services help you analyze player projections, optimize lineups, and manage contest data. We are the data controller for information collected through this platform.</p>
+          <p>DFS Edge Pro (&ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;) is a professional daily fantasy sports analytics platform. Our services help you analyze player projections, optimize lineups, and manage contest data. We are the data controller for information collected through this platform.</p>
         </Section>
 
         <Section title="2. What Data We Collect">

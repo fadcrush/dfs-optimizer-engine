@@ -30,11 +30,11 @@ function valueTier(v: number): string {
 
 function tierColor(tier: string): string {
   switch (tier) {
-    case 'elite': return '#22c55e'
-    case 'strong': return '#84cc16'
-    case 'solid': return '#eab308'
-    case 'weak': return '#f97316'
-    default: return '#6b7280'
+    case 'elite': return 'text-green-400'
+    case 'strong': return 'text-lime-500'
+    case 'solid': return 'text-yellow-400'
+    case 'weak': return 'text-orange-500'
+    default: return 'text-gray-500'
   }
 }
 
@@ -356,7 +356,7 @@ export default function ProjectionsPage() {
                         <td className={`${tdCls} text-text-muted`}>{p.floor.toFixed(1)}</td>
                         <td className={`${tdCls} text-success`}>{p.ceiling.toFixed(1)}</td>
                         <td className={tdCls}>
-                          <span className="font-semibold" style={{ color: tierColor(tier) }}>
+                          <span className={`font-semibold ${tierColor(tier)}`}>
                             {p.value.toFixed(2)}x
                           </span>
                         </td>

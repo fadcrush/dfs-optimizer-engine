@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, type CSSProperties } from 'react'
 import { runProjections, type PlayerProjection } from '@/lib/api'
 import { formatSalary } from '@/lib/utils'
 import { useLatestSlate } from '@/hooks/useLatestSlate'
@@ -436,7 +436,7 @@ export default function EVModelingPage() {
             <div className="px-4 pb-3.5 flex flex-wrap gap-2">
               {(Object.keys(CAT_COLOR) as Category[]).map(cat => (
                 <div key={cat} className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: CAT_COLOR[cat] }} />
+                  <div className="w-2.5 h-2.5 rounded-full bg-[var(--cat-c)]" style={{'--cat-c': CAT_COLOR[cat]} as CSSProperties} />
                   <span className="text-[11px] text-text-muted">{cat}</span>
                   <span className="text-[11px] text-text-muted ml-0.5">{categoryCounts[cat]} players</span>
                 </div>

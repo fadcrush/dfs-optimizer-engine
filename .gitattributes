@@ -1,0 +1,8 @@
+# Ensure shell scripts always have LF line endings (required for Docker/Linux)
+*.sh text eol=lf
+
+# Dockerfiles — LF
+Dockerfile* text eol=lf
+
+# Default: Windows devs get CRLF for text files
+* text=auto

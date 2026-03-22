@@ -1,0 +1,3 @@
+cfaff9c4 Phase 30: Light/dark theme toggle + nightly projection reconciliation (SAAS ┬º7 P3)
+d49b6083 Phase 29: Mobile hamburger menu + ConfirmDialog wiring (SAAS ┬º7 P2 UX polish)
+2cb7e2c4 Phase 28: NavBar real user avatar + EmptyState components (SAAS ┬º7 onboarding UX)

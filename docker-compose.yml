@@ -53,7 +53,7 @@ services:
         # Read public keys from .env at BUILD TIME
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
         NEXT_PUBLIC_DISABLE_AUTH: 1
     ports:
       - "3000:3000"

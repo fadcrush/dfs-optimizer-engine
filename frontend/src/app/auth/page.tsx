@@ -156,7 +156,7 @@ export default function AuthPage() {
           {/* Forgot password form */}
           {mode === 'forgot' ? (
             <div className="mt-5 flex flex-col gap-3">
-              <p className="text-sm text-text-secondary">Enter your email and we'll send a reset link (expires in 1 hour).</p>
+              <p className="text-sm text-text-secondary">Enter your email and we&apos;ll send a reset link (expires in 1 hour).</p>
               <div>
                 <label className="mb-1.5 block text-[11px] font-semibold uppercase text-text-muted">Email</label>
                 <input value={email} onChange={e => setEmail(e.target.value)} className={inputCls} type="email" placeholder="you@example.com" />

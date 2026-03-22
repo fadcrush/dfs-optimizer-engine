@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { CheckCircle } from 'lucide-react'
 import { getBillingStatus } from '@/lib/api/billing'
 
-export default function BillingSuccessPage() {
+function BillingSuccessContent() {
   const router = useRouter()
   const params = useSearchParams()
   const sessionId = params.get('session_id')
@@ -55,5 +55,17 @@ export default function BillingSuccessPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function BillingSuccessPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-surface-base flex items-center justify-center">
+        <div className="text-text-secondary text-sm">Loading…</div>
+      </div>
+    }>
+      <BillingSuccessContent />
+    </Suspense>
   )
 }

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { authFetch } from '@/lib/auth'
+import { cn } from '@/lib/utils'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -108,7 +109,7 @@ function GameCard({ game }: { game: Game }) {
       {/* Away */}
       <div className="flex justify-between items-center mb-[5px]">
         <div className="flex items-center gap-1.5">
-          <div className="w-7 h-7 rounded-[5px] flex items-center justify-center text-[9px] font-extrabold text-white" style={{ background: teamColor(game.away_abbr) }}>
+          <div className="w-7 h-7 rounded-[5px] flex items-center justify-center text-[9px] font-extrabold text-white bg-[var(--tc)]" style={{'--tc': teamColor(game.away_abbr)} as React.CSSProperties}>
             {game.away_abbr.slice(0, 3)}
           </div>
           <span className="text-[11px] text-[#cbd5e1] font-semibold">{game.away_abbr}</span>
@@ -120,7 +121,7 @@ function GameCard({ game }: { game: Game }) {
       {/* Home */}
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-1.5">
-          <div className="w-7 h-7 rounded-[5px] flex items-center justify-center text-[9px] font-extrabold text-white" style={{ background: teamColor(game.home_abbr) }}>
+          <div className="w-7 h-7 rounded-[5px] flex items-center justify-center text-[9px] font-extrabold text-white bg-[var(--tc)]" style={{'--tc': teamColor(game.home_abbr)} as React.CSSProperties}>
             {game.home_abbr.slice(0, 3)}
           </div>
           <span className="text-[11px] text-[#cbd5e1] font-semibold">{game.home_abbr}</span>
@@ -417,15 +418,16 @@ export default function DashboardPage() {
                     key={abbr}
                     onClick={() => toggleTeam(abbr)}
                     title={included ? 'Click to fade this team' : 'Click to include this team'}
-                    className="w-20 h-[68px] rounded-lg flex flex-col items-center justify-center gap-1 relative cursor-pointer"
-                    style={{
-                      border: `2px solid ${included ? teamColor(abbr) : '#1e2a3a'}`,
-                      background: included ? teamColor(abbr) + '22' : '#0d1117',
-                      opacity: included ? 1 : 0.4,
-                      transition: 'opacity 0.15s, border-color 0.15s',
-                    }}
+                    style={{'--tc': teamColor(abbr)} as React.CSSProperties}
+                    className={cn(
+                      'w-20 h-[68px] rounded-lg flex flex-col items-center justify-center gap-1 relative cursor-pointer',
+                      'transition-opacity duration-150',
+                      included
+                        ? 'border-2 border-[var(--tc)] bg-[color-mix(in_srgb,var(--tc)_13%,transparent)] opacity-100'
+                        : 'border-2 border-[#1e2a3a] bg-[#0d1117] opacity-40'
+                    )}
                   >
-                    <div className="w-8 h-8 rounded-[6px] flex items-center justify-center text-[10px] font-extrabold text-white" style={{ background: included ? teamColor(abbr) : '#1e2a3a' }}>
+                    <div className={cn('w-8 h-8 rounded-[6px] flex items-center justify-center text-[10px] font-extrabold text-white', included ? 'bg-[var(--tc)]' : 'bg-[#1e2a3a]')}>
                       {abbr.slice(0, 3)}
                     </div>
                     <span className={`text-[10px] font-semibold ${included ? 'text-[#e2e8f0]' : 'text-[#475569]'}`}>
@@ -559,14 +561,12 @@ export default function DashboardPage() {
                             const teamFaded   = excludedTeams.has(p.team)
                             const playerSkipped = excludedPlayers.has(p.name)
                             const faded = teamFaded || playerSkipped
-                            const rowBg = i % 2 === 0 ? '#0f172a' : '#0a1020'
                             return (
                               <tr
                                 key={`${p.name}-${i}`}
                                 onClick={() => togglePlayer(p.name)}
                                 title={playerSkipped ? 'Click to un-skip this player' : 'Click to skip this player'}
-                                className="border-b border-[#111827] cursor-pointer"
-                                style={{ background: rowBg, opacity: faded ? 0.3 : 1, transition: 'opacity 0.1s' }}
+                                className={cn('border-b border-[#111827] cursor-pointer transition-opacity duration-100', i % 2 === 0 ? 'bg-slate-900' : 'bg-[#0a1020]', faded ? 'opacity-30' : 'opacity-100')}
                               >
                                 {/* Player name */}
                                 <td className="px-3 py-2 whitespace-nowrap">
@@ -585,7 +585,7 @@ export default function DashboardPage() {
                                 {/* Team */}
                                 <td className="px-3 py-2">
                                   <div className="flex items-center gap-1.5">
-                                    <div className="w-[18px] h-[18px] rounded-[3px] flex items-center justify-center text-[7px] font-extrabold text-white shrink-0" style={{ background: teamColor(p.team) }}>
+                                    <div className="w-[18px] h-[18px] rounded-[3px] flex items-center justify-center text-[7px] font-extrabold text-white shrink-0 bg-[var(--pt)]" style={{'--pt': teamColor(p.team)} as React.CSSProperties}>
                                       {p.team.slice(0, 3)}
                                     </div>
                                     <span className={`font-semibold text-[11px] ${faded ? 'text-[#475569]' : 'text-[#cbd5e1]'}`}>{p.team}</span>
@@ -599,19 +599,19 @@ export default function DashboardPage() {
                                 </td>
                                 {/* Salary */}
                                 {visibleCols.has('salary') && (
-                                  <td className="px-3 py-2 text-right font-mono font-bold whitespace-nowrap" style={{ color: salaryColor(p.salary) }}>
+                                  <td className={cn('px-3 py-2 text-right font-mono font-bold whitespace-nowrap', salaryColor(p.salary))}>
                                     ${p.salary.toLocaleString()}
                                   </td>
                                 )}
                                 {/* FPPG */}
                                 {visibleCols.has('fppg') && (
-                                  <td className="px-3 py-2 text-right font-mono" style={{ color: projColor(p.fppg) }}>
+                                  <td className={cn('px-3 py-2 text-right font-mono', projColor(p.fppg))}>
                                     {p.fppg > 0 ? p.fppg.toFixed(2) : '—'}
                                   </td>
                                 )}
                                 {/* Value */}
                                 {visibleCols.has('value') && (
-                                  <td className="px-3 py-2 text-right font-mono" style={{ color: valColor(p.value) }}>
+                                  <td className={cn('px-3 py-2 text-right font-mono', valColor(p.value))}>
                                     {p.value > 0 ? p.value.toFixed(2) : '—'}
                                   </td>
                                 )}
@@ -695,24 +695,24 @@ export default function DashboardPage() {
 // ---------------------------------------------------------------------------
 
 function salaryColor(sal: number): string {
-  if (sal >= 9000) return '#f472b6'
-  if (sal >= 7500) return '#fb923c'
-  if (sal >= 6000) return '#facc15'
-  return '#94a3b8'
+  if (sal >= 9000) return 'text-pink-400'
+  if (sal >= 7500) return 'text-orange-400'
+  if (sal >= 6000) return 'text-yellow-400'
+  return 'text-slate-400'
 }
 
 function projColor(pts: number): string {
-  if (pts >= 45) return '#34d399'
-  if (pts >= 35) return '#86efac'
-  if (pts >= 25) return '#f1f5f9'
-  return '#94a3b8'
+  if (pts >= 45) return 'text-emerald-400'
+  if (pts >= 35) return 'text-green-300'
+  if (pts >= 25) return 'text-slate-100'
+  return 'text-slate-400'
 }
 
 function valColor(v: number): string {
-  if (v >= 6) return '#34d399'
-  if (v >= 5) return '#86efac'
-  if (v >= 4) return '#f1f5f9'
-  return '#94a3b8'
+  if (v >= 6) return 'text-emerald-400'
+  if (v >= 5) return 'text-green-300'
+  if (v >= 4) return 'text-slate-100'
+  return 'text-slate-400'
 }
 
 function thStyle(align: 'left' | 'right' | 'center'): string {

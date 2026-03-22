@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { Card, CardHeader } from '@/components/ui/Card'
@@ -31,7 +31,7 @@ function StatBox({ label, value, color }: { label: string; value: string; color?
   return (
     <div className="bg-surface-overlay border border-surface-border rounded-lg px-5 py-3.5 flex flex-col items-center min-w-[130px]">
       <span className="text-[11px] text-text-muted uppercase font-semibold tracking-wide">{label}</span>
-      <span className="text-2xl font-bold mt-1" style={{ color: color ?? undefined }}>{value}</span>
+      <span className={cn('text-2xl font-bold mt-1', color && 'text-[var(--stat-c)]')} style={color ? {'--stat-c': color} as CSSProperties : undefined}>{value}</span>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type CSSProperties } from 'react'
 import { formatSalary, cn } from '@/lib/utils'
 import type { SwapResult } from '@/lib/api'
 import {
@@ -162,7 +162,7 @@ export function CandidatePoolInspector({
           <div className="px-4 py-2 bg-[#0a0f1a] border-t border-surface-border flex flex-wrap gap-4 items-center text-[11px] text-text-muted">
             <span><strong className="text-text-secondary">Lineup:</strong> {lineupLabel}</span>
             <span><strong className="text-text-secondary">Budget:</strong>{'  '}
-              <span style={{ color: summary.remainingSalary < 4500 ? '#ef4444' : '#22c55e', fontWeight: 700 }}>
+              <span className={cn(summary.remainingSalary < 4500 ? 'text-red-500' : 'text-green-400', 'font-bold')}>
                 ${summary.remainingSalary.toLocaleString()}
               </span>{' '}remaining
             </span>
@@ -204,19 +204,16 @@ export function CandidatePoolInspector({
 
             {/* Toggle pills */}
             {([
-              ['includedOnly',    'Legal Only',       '#14532d', '#4ade80' ],
-              ['excludedOnly',    'Excluded Only',    '#450a0a', '#fca5a5' ],
-              ['fitSalaryOnly',   'Fits Salary',      '#1e3a5f', '#60a5fa' ],
-              ['hideUserExcluded','Hide Excluded',    '#1e293b', '#64748b' ],
-            ] as [keyof CandidatePoolFilters, string, string, string][]).map(([k, label, bg, color]) => (
+              ['includedOnly',    'Legal Only',       'bg-[#14532d] text-[#4ade80]' ],
+              ['excludedOnly',    'Excluded Only',    'bg-[#450a0a] text-[#fca5a5]' ],
+              ['fitSalaryOnly',   'Fits Salary',      'bg-[#1e3a5f] text-[#60a5fa]' ],
+              ['hideUserExcluded','Hide Excluded',    'bg-[#1e293b] text-[#64748b]' ],
+            ] as [keyof CandidatePoolFilters, string, string][]).map(([k, label, activeCls]) => (
               <button
                 key={k}
                 onClick={() => setFilter(k, !filters[k] || undefined)}
-                className="px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer border-none transition-all"
-                style={{
-                  background: filters[k] ? bg : '#1e293b',
-                  color: filters[k] ? color : '#475569',
-                }}
+                className={cn('px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer border-none transition-all',
+                  filters[k] ? activeCls : 'bg-[#1e293b] text-[#475569]')}
               >
                 {label}
               </button>
@@ -339,30 +336,29 @@ function CandidateRow({
   const badge = getStatusBadge(item)
   const diagnostic = getCandidateDiagnostic(item)
 
-  const rowBg = item.eligible
-    ? rank % 2 === 0 ? 'transparent' : '#0a0f1a'
+  const rowBgCls = item.eligible
+    ? rank % 2 === 0 ? 'bg-transparent' : 'bg-[#0a0f1a]'
     : item.reasonExcluded === ExclusionReason.SALARY_TOO_HIGH
-      ? '#1a0a00'
-      : '#0d0505'
+      ? 'bg-[#1a0a00]'
+      : 'bg-[#0d0505]'
 
-  const textColor = item.eligible ? '#cbd5e1' : '#475569'
-  const nameColor = item.eligible
-    ? '#f1f5f9'
+  const textColorCls = item.eligible ? 'text-[#cbd5e1]' : 'text-[#475569]'
+  const nameColorCls = item.eligible
+    ? 'text-[#f1f5f9]'
     : item.reasonExcluded === ExclusionReason.USER_EXCLUDED
-      ? '#7f1d1d'
-      : '#475569'
+      ? 'text-[#7f1d1d]'
+      : 'text-[#475569]'
 
   return (
     <tr
-      className={cn(!item.eligible && 'opacity-70')}
-      style={{ background: rowBg }}
+      className={cn(!item.eligible && 'opacity-70', rowBgCls)}
       onMouseEnter={() => setShowTip(true)}
       onMouseLeave={() => setShowTip(false)}
     >
       {/* Player */}
       <td className={cn(tdCls, "min-w-[140px]")}>
         <div className="flex items-center gap-[5px]">
-          <span className="font-bold" style={{ color: nameColor }}>
+          <span className={cn('font-bold', nameColorCls)}>
             {item.name}
           </span>
           {item.isSameTeam && (
@@ -381,7 +377,7 @@ function CandidateRow({
       </td>
 
       {/* Salary */}
-      <td className={cn(tdCls, item.fitsSalary ? "" : "text-[#f97316] font-bold")} style={{ color: item.fitsSalary ? textColor : undefined }}>
+      <td className={cn(tdCls, item.fitsSalary ? textColorCls : 'text-[#f97316] font-bold')}>
         {formatSalary(item.salary)}
       </td>
 
@@ -396,8 +392,7 @@ function CandidateRow({
       </td>
 
       {/* Own% */}
-      <td className={tdCls} style={{ color: textColor }}>
-        {item.ownership.toFixed(0)}%
+      <td className={cn(tdCls, textColorCls)}>
       </td>
 
       {/* Value */}
@@ -406,12 +401,12 @@ function CandidateRow({
       </td>
 
       {/* Leverage */}
-      <td className={tdCls} style={{ color: item.leverage > 15 ? '#22c55e' : item.leverage > 5 ? '#84cc16' : textColor }}>
+      <td className={cn(tdCls, item.leverage > 15 ? 'text-green-400' : item.leverage > 5 ? 'text-lime-500' : textColorCls)}>
         {item.leverage.toFixed(1)}
       </td>
 
       {/* Score */}
-      <td className={cn(tdCls, "font-bold")} style={{ color: scoreColor(item.swapScore) }}>
+      <td className={cn(tdCls, 'font-bold', scoreColor(item.swapScore))}>
         {(item.swapScore * 100).toFixed(0)}
       </td>
 
@@ -430,7 +425,9 @@ function CandidateRow({
 
       {/* Status badge */}
       <td className={tdCls}>
-        <span className="text-[9px] font-bold px-[5px] py-0.5 rounded" style={{ background: badge.bg, color: badge.color }}>
+        <span
+          className="text-[9px] font-bold px-[5px] py-0.5 rounded bg-[var(--bd-bg)] text-[var(--bd-fg)]"
+          style={{'--bd-bg': badge.bg, '--bd-fg': badge.color} as CSSProperties}>
           {badge.label}
         </span>
       </td>
@@ -483,9 +480,9 @@ function CandidateRow({
 // ---------------------------------------------------------------------------
 
 function scoreColor(s: number): string {
-  if (s >= 0.8) return '#22c55e'
-  if (s >= 0.6) return '#84cc16'
-  if (s >= 0.4) return '#facc15'
-  if (s >= 0.2) return '#f97316'
-  return '#ef4444'
+  if (s >= 0.8) return 'text-green-400'
+  if (s >= 0.6) return 'text-lime-500'
+  if (s >= 0.4) return 'text-yellow-400'
+  if (s >= 0.2) return 'text-orange-500'
+  return 'text-red-500'
 }

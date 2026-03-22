@@ -9,14 +9,14 @@ import { formatSalary, cn } from '@/lib/utils'
 // ---------------------------------------------------------------------------
 
 function projColor(n: number) {
-  if (n >= 3) return '#22c55e'
-  if (n >= 0) return '#84cc16'
-  if (n >= -3) return '#f97316'
-  return '#ef4444'
+  if (n >= 3) return 'text-green-400'
+  if (n >= 0) return 'text-lime-500'
+  if (n >= -3) return 'text-orange-500'
+  return 'text-red-500'
 }
 function salaryColor(n: number) {
   // spending less = green (more budget), spending more = orange
-  return n <= 0 ? '#22c55e' : '#f97316'
+  return n <= 0 ? 'text-green-400' : 'text-orange-500'
 }
 function sign(n: number) { return n >= 0 ? '+' : '' }
 
@@ -66,7 +66,6 @@ export function SwapResultComparison({ comparison, lineupLabel }: Props) {
 
   const allFailed   = successCount === 0 && failureCount > 0
   const someSucceed = successCount > 0
-  const statusColor = allFailed ? '#ef4444' : someSucceed ? '#22c55e' : '#94a3b8'
   const statusLabel = allFailed
     ? '✕ All Swaps Failed'
     : failureCount > 0
@@ -75,8 +74,7 @@ export function SwapResultComparison({ comparison, lineupLabel }: Props) {
 
   return (
     <div
-      className="bg-surface-base rounded-[10px] overflow-hidden mt-2"
-      style={{ border: `1px solid ${allFailed ? '#ef444433' : '#1e293b'}` }}
+      className={cn('bg-surface-base rounded-[10px] overflow-hidden mt-2 border', allFailed ? 'border-[#ef444433]' : 'border-[#1e293b]')}
     >
       {/* Header */}
       <div className="flex justify-between items-center px-4 py-2.5 border-b border-surface-border bg-[#0f172a]">
@@ -88,8 +86,8 @@ export function SwapResultComparison({ comparison, lineupLabel }: Props) {
         </div>
         <div className="flex items-center gap-2.5">
           <span
-            className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg"
-            style={{ color: statusColor, background: allFailed ? '#2d0a0a' : someSucceed ? '#0d2718' : '#111' }}
+            className={cn('text-[11px] font-bold px-2.5 py-0.5 rounded-lg',
+              allFailed ? 'text-red-500 bg-[#2d0a0a]' : someSucceed ? 'text-green-400 bg-[#0d2718]' : 'text-slate-400 bg-[#111]')}
           >
             {statusLabel}
           </span>
@@ -101,11 +99,8 @@ export function SwapResultComparison({ comparison, lineupLabel }: Props) {
       <div className="p-4 flex flex-col gap-2.5">
         {diffs.map((d, i) => (
           <div key={i}
-            className="rounded-lg px-3.5 py-2.5"
-            style={{
-              background: d.success ? '#0c1f17' : '#1f0a0a',
-              border: `1px solid ${d.success ? '#22c55e22' : '#ef444422'}`,
-            }}
+            className={cn('rounded-lg px-3.5 py-2.5 border',
+              d.success ? 'bg-[#0c1f17] border-[#22c55e22]' : 'bg-[#1f0a0a] border-[#ef444422]')}
           >
             {/* Removed → Added row */}
             <div className="flex items-center gap-2 flex-wrap">
@@ -145,13 +140,13 @@ export function SwapResultComparison({ comparison, lineupLabel }: Props) {
                   <>
                     <div className="text-right">
                       <div className="text-[9px] text-[#475569] uppercase">FPTS</div>
-                      <div className="text-xs font-bold" style={{ color: projColor(d.projDelta) }}>
+                      <div className={cn('text-xs font-bold', projColor(d.projDelta))}>
                         {sign(d.projDelta)}{d.projDelta.toFixed(1)}
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="text-[9px] text-[#475569] uppercase">Salary</div>
-                      <div className="text-xs font-bold" style={{ color: salaryColor(d.salaryDelta) }}>
+                      <div className={cn('text-xs font-bold', salaryColor(d.salaryDelta))}>
                         {sign(d.salaryDelta)}${Math.abs(d.salaryDelta).toLocaleString()}
                       </div>
                     </div>
@@ -175,7 +170,7 @@ export function SwapResultComparison({ comparison, lineupLabel }: Props) {
         <div className="mx-4 mb-3.5 px-4 py-2.5 bg-[#111827] border border-surface-border rounded-lg flex gap-6 flex-wrap items-center">
           <div>
             <div className="text-[10px] text-[#475569] uppercase mb-0.5">Total FPTS Change</div>
-            <div className="text-[18px] font-extrabold" style={{ color: projColor(totalProjDelta) }}>
+            <div className={cn('text-[18px] font-extrabold', projColor(totalProjDelta))}>
               {sign(totalProjDelta)}{totalProjDelta.toFixed(1)}
             </div>
           </div>
@@ -189,7 +184,7 @@ export function SwapResultComparison({ comparison, lineupLabel }: Props) {
             <div className="text-[10px] text-[#475569] uppercase mb-0.5">Salary: New</div>
             <div className="text-[15px] font-bold text-[#f1f5f9]">
               ${finalSalary.toLocaleString()}
-              <span className="text-[11px] ml-1.5" style={{ color: salaryColor(totalSalaryDelta) }}>
+              <span className={cn('text-[11px] ml-1.5', salaryColor(totalSalaryDelta))}>
                 ({sign(totalSalaryDelta)}${Math.abs(totalSalaryDelta).toLocaleString()})
               </span>
             </div>
@@ -197,8 +192,7 @@ export function SwapResultComparison({ comparison, lineupLabel }: Props) {
           <div>
             <div className="text-[10px] text-[#475569] uppercase mb-0.5">Cap Remaining</div>
             <div
-              className="text-[15px] font-bold"
-              style={{ color: salaryCap - finalSalary < 1000 ? '#ef4444' : '#22c55e' }}
+              className={cn('text-[15px] font-bold', salaryCap - finalSalary < 1000 ? 'text-red-500' : 'text-green-400')}
             >
               ${(salaryCap - finalSalary).toLocaleString()}
             </div>

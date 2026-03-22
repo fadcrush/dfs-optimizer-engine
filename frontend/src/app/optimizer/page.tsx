@@ -17,7 +17,7 @@ import { SlateSelector } from '@/components/shared/SlateSelector'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ContestModeSelector, CONTEST_MODE_PRESETS, type ContestMode, type ContestModeConfig } from '@/components/shared/ContestModeSelector'
-import { LockFadeControl } from '@/components/shared/LockFadeControl'
+import { LockFadeControl, type ProjectionPlayer } from '@/components/shared/LockFadeControl'
 import { CopyLineupButton } from '@/components/shared/CopyLineupButton'
 import { InjuryAlertBanner } from '@/components/shared/InjuryAlertBanner'
 import { getInjurySummary } from '@/lib/api/slates'
@@ -27,8 +27,10 @@ import {
   parseCSVToPool,
   getPoolExcludedNames,
   getPoolProjectionOverrides,
+  getPoolLockedNames,
   validatePool,
   type PlayerPoolMap,
+  type PoolStatus,
 } from '@/components/optimizer/PlayerPoolPanel'
 
 // ============================================================================
@@ -338,12 +340,11 @@ export default function OptimizerPage() {
   const [maxExposure, setMaxExposure] = useState(50)   // percent (e.g. 50 = 50%)
   const [numUnique, setNumUnique] = useState(2)          // unique players across each lineup
 
-  // Lock / fade
-  const [locks, setLocks] = useState<string[]>([])
-  const [fades, setFades] = useState<string[]>([])
-
+  // Lock / fade — source of truth is poolMap; LockFadeControl reads/writes via these handlers
   // ── Player Pool ───────────────────────────────────────────────────────────
   const [playerPool, setPlayerPool] = useState<PlayerPoolMap>(new Map())
+
+  const poolLockNames = getPoolLockedNames(playerPool)
 
   // ── Injury awareness ────────────────────────────────────────────────────
   const [injurySummary, setInjurySummary] = useState<InjurySummary | null>(null)
@@ -405,6 +406,22 @@ export default function OptimizerPage() {
       return pool
     }
   }, [])
+
+  // Sync LockFadeControl → pool: when name list changes, update poolStatus accordingly
+  const handleLocksChange = (newLocks: string[]) => {
+    const locksSet = new Set(newLocks.map(n => n.toLowerCase()))
+    const next = new Map(playerPool)
+    let changed = false
+    next.forEach((entry, id) => {
+      const shouldLock = locksSet.has(entry.name.toLowerCase())
+      const isLocked = entry.poolStatus === 'locked'
+      if (shouldLock !== isLocked) {
+        next.set(id, { ...entry, poolStatus: (shouldLock ? 'locked' : 'included') as PoolStatus })
+        changed = true
+      }
+    })
+    if (changed) setPlayerPool(next)
+  }
 
   // Slate auto-load
   const { slates, selectedSlate, setSelectedId, slateFile, loading: slateLoading } = useLatestSlate()
@@ -534,7 +551,7 @@ export default function OptimizerPage() {
         outPlayers: mergedExcludes.length > 0 ? mergedExcludes : undefined,
         chalkThreshold: chalkThreshold > 0 ? chalkThreshold : undefined,
         projectionOverrides: Object.keys(projOverrides).length > 0 ? projOverrides : undefined,
-        lockedPlayers: locks.length > 0 ? locks : undefined,
+        lockedPlayers: poolLockNames.length > 0 ? poolLockNames : undefined,
       })
 
       if (!response.success) {
@@ -603,7 +620,7 @@ export default function OptimizerPage() {
         refreshProps: true,
         chalkThreshold: chalkThreshold > 0 ? chalkThreshold : undefined,
         projectionOverrides: Object.keys(_projOverrides).length > 0 ? _projOverrides : undefined,
-        lockedPlayers: locks.length > 0 ? locks : undefined,
+        lockedPlayers: poolLockNames.length > 0 ? poolLockNames : undefined,
       })
 
       if (!response.success) {
@@ -917,15 +934,19 @@ export default function OptimizerPage() {
             </div>
 
             {/* Lock / Fade control */}
-            <div className="mb-3.5">
-              <LockFadeControl
-                players={[]}
-                locks={locks}
-                fades={fades}
-                onLocksChange={setLocks}
-                onFadesChange={setFades}
-              />
-            </div>
+            {playerPool.size > 0 && (
+              <div className="mb-3.5">
+                <LockFadeControl
+                  players={Array.from(playerPool.values()).map(e => ({
+                    name: e.name, pos: e.pos, salary: e.salary, proj: e.adjProj, team: e.team,
+                  } as ProjectionPlayer))}
+                  locks={poolLockNames}
+                  fades={[]}
+                  onLocksChange={handleLocksChange}
+                  onFadesChange={() => {}}
+                />
+              </div>
+            )}
 
             <details className="mb-3.5">
               <summary className="text-xs text-text-muted cursor-pointer">Required CSV columns</summary>

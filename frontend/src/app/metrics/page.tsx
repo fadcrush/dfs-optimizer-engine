@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { getAnalyticsRoi, getAnalyticsAccuracy } from '@/lib/api'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { getAnalyticsRoi, getAnalyticsAccuracy, postContestResult } from '@/lib/api'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,7 +22,7 @@ interface RoiData {
   profit?: number
   roi_percentage?: number
   total_contests?: number
-  roi_by_type?: Record<string, { invested: number; won: number; roi: number }>
+  roi_by_type?: Record<string, { invested: number; won: number; roi: number; count?: number }>
   period_days?: number
 }
 
@@ -95,9 +95,9 @@ function BarChart({ data }: { data: { date: string; completed: number; failed: n
         return (
           <div key={d.date} className="flex-1 flex flex-col items-center gap-0.5">
             <div className="w-full flex flex-col justify-end h-[110px]">
-              <div className="w-full flex flex-col" style={{ height: `${totalH}%`, minHeight: 2 }}>
+              <div className="w-full flex flex-col h-[var(--total-h)] min-h-[2px]" style={{'--total-h': `${totalH}%`} as CSSProperties}>
                 {d.failed > 0 && (
-                  <div className="w-full rounded-t-sm bg-danger" style={{ height: `${failRatio * 100}%` }} />
+                  <div className="w-full rounded-t-sm bg-danger h-[var(--fail-h)]" style={{'--fail-h': `${failRatio * 100}%`} as CSSProperties} />
                 )}
                 <div className={`w-full flex-1 bg-primary${d.failed > 0 ? '' : ' rounded-t-sm'}`} />
               </div>
@@ -172,6 +172,21 @@ export default function MetricsPage() {
   const [loading, setLoading] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
+  // Contest log form
+  const [showForm, setShowForm] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [formMsg, setFormMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [cf, setCf] = useState({
+    contest_date: new Date().toISOString().slice(0, 10),
+    contest_type: 'gpp' as 'gpp' | 'double_up' | 'cash' | 'winner_take_all',
+    site: 'DK' as 'DK' | 'FD',
+    entry_fee: '',
+    payout: '',
+    final_rank: '',
+    total_entries: '',
+    notes: '',
+  })
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
@@ -192,6 +207,31 @@ export default function MetricsPage() {
   }, [period])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  async function handleSubmitContest(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    setFormMsg(null)
+    const result = await postContestResult({
+      contest_date: cf.contest_date,
+      contest_type: cf.contest_type,
+      site: cf.site,
+      entry_fee: parseFloat(cf.entry_fee),
+      payout: cf.payout ? parseFloat(cf.payout) : undefined,
+      final_rank: cf.final_rank ? parseInt(cf.final_rank) : undefined,
+      total_entries: cf.total_entries ? parseInt(cf.total_entries) : undefined,
+      notes: cf.notes || undefined,
+    })
+    setSubmitting(false)
+    if (result.success) {
+      setFormMsg({ type: 'ok', text: 'Contest entry logged!' })
+      setCf(c => ({ ...c, entry_fee: '', payout: '', final_rank: '', total_entries: '', notes: '' }))
+      setShowForm(false)
+      fetchAll()
+    } else {
+      setFormMsg({ type: 'err', text: result.error ?? 'Failed to log contest' })
+    }
+  }
 
   // Daily projections logged — bar chart data from by_day
   const dailyRuns: { date: string; completed: number; failed: number }[] = (
@@ -228,6 +268,12 @@ export default function MetricsPage() {
                 <button key={p} onClick={() => setPeriod(p)} className={`px-3 py-1.5 text-xs font-bold cursor-pointer border-none transition-colors ${period === p ? 'bg-primary text-white' : 'bg-transparent text-text-muted hover:text-text-secondary'}`}>{p}</button>
               ))}
             </div>
+            <button
+              onClick={() => { setShowForm(v => !v); setFormMsg(null) }}
+              className="px-3.5 py-1.5 rounded-lg border-none bg-primary text-white text-xs font-semibold cursor-pointer hover:opacity-90 transition-opacity"
+            >
+              {showForm ? '✕ Close' : '+ Log Contest'}
+            </button>
             <button onClick={fetchAll} disabled={loading} className="px-3.5 py-1.5 rounded-lg border-none bg-surface-raised text-text-secondary text-xs font-semibold cursor-pointer hover:bg-surface-overlay transition-colors disabled:cursor-not-allowed disabled:text-text-muted">
               {loading ? '⟳ Loading…' : '⟳ Refresh'}
             </button>
@@ -238,6 +284,126 @@ export default function MetricsPage() {
             )}
           </div>
         </div>
+
+        {/* Contest log form (collapsible) */}
+        {showForm && (
+          <div className="mb-5 bg-surface-raised border border-surface-border rounded-xl px-5 py-4">
+            <div className="text-xs font-bold text-text-secondary uppercase tracking-[0.05em] mb-3">Log Contest Entry</div>
+            <form onSubmit={handleSubmitContest}>
+              <div className="grid grid-cols-4 gap-3 mb-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] text-text-muted">Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={cf.contest_date}
+                    onChange={e => setCf(c => ({ ...c, contest_date: e.target.value }))}
+                    className="px-2 py-1.5 rounded-md border border-surface-border bg-surface-base text-text-primary text-xs outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] text-text-muted">Type</label>
+                  <select
+                    value={cf.contest_type}
+                    onChange={e => setCf(c => ({ ...c, contest_type: e.target.value as typeof cf.contest_type }))}
+                    className="px-2 py-1.5 rounded-md border border-surface-border bg-surface-base text-text-primary text-xs outline-none focus:border-primary"
+                  >
+                    <option value="gpp">GPP</option>
+                    <option value="cash">Cash</option>
+                    <option value="double_up">Double-Up</option>
+                    <option value="winner_take_all">Winner Take All</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] text-text-muted">Site</label>
+                  <select
+                    value={cf.site}
+                    onChange={e => setCf(c => ({ ...c, site: e.target.value as 'DK' | 'FD' }))}
+                    className="px-2 py-1.5 rounded-md border border-surface-border bg-surface-base text-text-primary text-xs outline-none focus:border-primary"
+                  >
+                    <option value="DK">DraftKings</option>
+                    <option value="FD">FanDuel</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] text-text-muted">Entry Fee ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    placeholder="e.g. 25"
+                    value={cf.entry_fee}
+                    onChange={e => setCf(c => ({ ...c, entry_fee: e.target.value }))}
+                    className="px-2 py-1.5 rounded-md border border-surface-border bg-surface-base text-text-primary text-xs outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-4 gap-3 mb-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] text-text-muted">Payout ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={cf.payout}
+                    onChange={e => setCf(c => ({ ...c, payout: e.target.value }))}
+                    className="px-2 py-1.5 rounded-md border border-surface-border bg-surface-base text-text-primary text-xs outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] text-text-muted">Final Rank</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="optional"
+                    value={cf.final_rank}
+                    onChange={e => setCf(c => ({ ...c, final_rank: e.target.value }))}
+                    className="px-2 py-1.5 rounded-md border border-surface-border bg-surface-base text-text-primary text-xs outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] text-text-muted">Total Entries</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="optional"
+                    value={cf.total_entries}
+                    onChange={e => setCf(c => ({ ...c, total_entries: e.target.value }))}
+                    className="px-2 py-1.5 rounded-md border border-surface-border bg-surface-base text-text-primary text-xs outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] text-text-muted">Notes</label>
+                  <input
+                    type="text"
+                    placeholder="optional"
+                    value={cf.notes}
+                    onChange={e => setCf(c => ({ ...c, notes: e.target.value }))}
+                    className="px-2 py-1.5 rounded-md border border-surface-border bg-surface-base text-text-primary text-xs outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={submitting || !cf.entry_fee}
+                  className="px-4 py-1.5 rounded-lg border-none bg-primary text-white text-xs font-semibold cursor-pointer hover:opacity-90 transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {submitting ? 'Saving…' : 'Save Entry'}
+                </button>
+                {formMsg && (
+                  <span className={`text-xs font-semibold ${formMsg.type === 'ok' ? 'text-success' : 'text-danger'}`}>
+                    {formMsg.text}
+                  </span>
+                )}
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* Summary stat cards */}
         <div className="flex gap-3 mb-5">
@@ -329,6 +495,20 @@ export default function MetricsPage() {
                 <InfoRow label="Total Invested" value={roi.total_invested != null ? `$${roi.total_invested.toFixed(2)}` : '—'} />
                 <InfoRow label="Total Won"      value={roi.total_won != null ? `$${roi.total_won.toFixed(2)}` : '—'} />
                 <InfoRow label="ROI %"          value={roi.roi_percentage != null ? `${roi.roi_percentage.toFixed(1)}%` : '—'} />
+                {roi.roi_by_type && Object.keys(roi.roi_by_type).length > 0 && (
+                  <>
+                    <div className="mt-3 mb-1.5 text-[11px] text-text-muted uppercase tracking-[0.05em]">By Type</div>
+                    {Object.entries(roi.roi_by_type).map(([type, stats]) => (
+                      <div key={type} className="flex justify-between items-center py-0.5">
+                        <span className="text-xs text-text-muted capitalize">{type.replace('_', ' ')}</span>
+                        <span className={`text-xs font-semibold tabular-nums ${stats.roi >= 0 ? 'text-success' : 'text-danger'}`}>
+                          {stats.roi >= 0 ? '+' : ''}{stats.roi.toFixed(1)}%
+                          <span className="ml-1 font-normal text-text-muted">({stats.count ?? 0})</span>
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                )}
               </>
             )}
           </div>

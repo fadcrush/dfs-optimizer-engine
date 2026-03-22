@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, type CSSProperties } from 'react'
 import { runFDOptimizer } from '@/lib/api'
 import { useLatestSlate } from '@/hooks/useLatestSlate'
 import { SlateSelector } from '@/components/shared/SlateSelector'
@@ -168,7 +168,7 @@ function ScoreDistribution({ lineups, nSims }: { lineups: SimLineup[]; nSims: nu
           { color: '#f59e0b', label: 'Top 10%' },
         ].map(({ color, label }) => (
           <div key={label} className="flex items-center gap-1.5 text-[10px] text-text-muted">
-            <div className="w-2.5 h-2.5 rounded-sm" style={{ background: color }} />
+            <div className="w-2.5 h-2.5 rounded-sm bg-[var(--legend-c)]" style={{'--legend-c': color} as CSSProperties} />
             {label}
           </div>
         ))}
@@ -355,8 +355,8 @@ function ResultsPanel({ result }: { result: SimResult }) {
                     <div className="flex items-center gap-2">
                       <div className="flex-1 bg-surface-border rounded h-1.5">
                         <div
-                          className={cn('h-full rounded', p.exposure >= 40 ? 'bg-warning' : 'bg-primary')}
-                          style={{ width: `${p.exposure}%` }}
+                          className={cn('h-full rounded w-[var(--exp)] transition-[width]', p.exposure >= 40 ? 'bg-warning' : 'bg-primary')}
+                          style={{'--exp': `${p.exposure}%`} as CSSProperties}
                         />
                       </div>
                       <span className="text-xs text-text-secondary w-9 text-right">{p.exposure.toFixed(0)}%</span>

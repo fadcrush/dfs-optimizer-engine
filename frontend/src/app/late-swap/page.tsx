@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, type CSSProperties } from 'react'
 import {
   lateSwap,
   runFullPipeline,
@@ -72,21 +72,21 @@ interface ManagedLineup {
 // --- Helpers ------------------------------------------------------------------
 
 function deltaColor(n: number): string {
-  if (n > 2) return '#22c55e'
-  if (n > 0) return '#84cc16'
-  if (n < -2) return '#ef4444'
-  if (n < 0) return '#f97316'
-  return '#94a3b8'
+  if (n > 2) return 'text-green-400'
+  if (n > 0) return 'text-lime-500'
+  if (n < -2) return 'text-red-500'
+  if (n < 0) return 'text-orange-500'
+  return 'text-slate-400'
 }
 function salaryDeltaColor(n: number): string {
-  return n > 0 ? '#f97316' : n < 0 ? '#22c55e' : '#94a3b8'
+  return n > 0 ? 'text-orange-500' : n < 0 ? 'text-green-400' : 'text-slate-400'
 }
 function scoreColor(s: number): string {
-  if (s >= 0.8) return '#22c55e'
-  if (s >= 0.6) return '#84cc16'
-  if (s >= 0.4) return '#facc15'
-  if (s >= 0.2) return '#f97316'
-  return '#ef4444'
+  if (s >= 0.8) return 'text-green-400'
+  if (s >= 0.6) return 'text-lime-500'
+  if (s >= 0.4) return 'text-yellow-400'
+  if (s >= 0.2) return 'text-orange-500'
+  return 'text-red-500'
 }
 
 function getPreferredActiveLineupIndex(lineups: ManagedLineup[], fallbackIndex = 0): number {
@@ -148,15 +148,15 @@ function CandidateRow({
       <td className={cn(tdCls, 'font-bold text-[#22d3ee]')}>{c.projection.toFixed(1)}</td>
       <td className={cn(tdCls, 'text-[#818cf8]')}>{c.ceiling.toFixed(1)}</td>
       <td className={cn(tdCls, 'text-[#a78bfa]')}>{c.value.toFixed(2)}</td>
-      <td className={cn(tdCls, 'font-bold')} style={{ color: deltaColor(c.proj_delta) }}>
+      <td className={cn(tdCls, 'font-bold', deltaColor(c.proj_delta))}>
         {c.proj_delta > 0 ? '+' : ''}{c.proj_delta.toFixed(1)}
       </td>
-      <td className={tdCls} style={{ color: salaryDeltaColor(c.salary_delta) }}>
+      <td className={cn(tdCls, salaryDeltaColor(c.salary_delta))}>
         {c.salary_delta > 0 ? '+' : ''}{c.salary_delta.toLocaleString()}
       </td>
       <td className={cn(tdCls, 'text-text-muted')}>{c.new_total_salary.toLocaleString()}</td>
       <td className={cn(tdCls, 'text-[#475569]')}>{c.own.toFixed(0)}%</td>
-      <td className={cn(tdCls, 'font-bold')} style={{ color: scoreColor(c.swap_score) }}>{(c.swap_score * 100).toFixed(0)}</td>
+      <td className={cn(tdCls, 'font-bold', scoreColor(c.swap_score))}>{(c.swap_score * 100).toFixed(0)}</td>
       <td className={cn(tdCls, 'px-2 py-1')}>
         <div className="flex gap-1 flex-nowrap">
           <button
@@ -620,8 +620,8 @@ function ExposurePanel({
                   </span>
                   <div className="w-[60px] h-1 bg-surface-border rounded shrink-0">
                     <div
-                      className={cn('h-full rounded', isScratched ? 'bg-danger' : isLocked ? 'bg-primary' : 'bg-success')}
-                      style={{ width: `${pct}%` }}
+                      className={cn('h-full rounded w-[var(--pb)]', isScratched ? 'bg-danger' : isLocked ? 'bg-primary' : 'bg-success')}
+                      style={{'--pb': `${pct}%`} as CSSProperties}
                     />
                   </div>
                   <span className="text-[11px] text-text-muted shrink-0 min-w-[52px] text-right">{count}/{total} ({pct}%)</span>
@@ -795,8 +795,10 @@ function ReOptimizePanel({
                     <td className={cn(tdCls, 'text-right text-success font-bold')}>
                       {lineup.projected_points?.toFixed(1)}
                     </td>
-                    <td className={cn(tdCls, 'text-right font-bold')}
-                      style={{ color: lineup.total_ownership == null ? '#475569' : lineup.total_ownership < 150 ? '#34d399' : lineup.total_ownership < 200 ? '#facc15' : '#f87171' }}>
+                    <td className={cn(tdCls, 'text-right font-bold',
+                      lineup.total_ownership == null ? 'text-slate-500' :
+                      lineup.total_ownership < 150 ? 'text-emerald-400' :
+                      lineup.total_ownership < 200 ? 'text-yellow-400' : 'text-red-400')}>
                       {lineup.total_ownership != null ? `${lineup.total_ownership.toFixed(1)}%` : '�'}
                     </td>
                   </tr>
@@ -2486,12 +2488,13 @@ className={cn(inpCls, 'resize-y leading-relaxed font-mono text-xs')}
                     { label: 'Own% ↓', value: wOwn, set: setWOwn, color: '#f97316' },
                   ] as { label: string; value: number; set: (v: number) => void; color: string }[]).map(({ label, value, set, color }) => (
                     <div key={label} className="flex items-center gap-2">
-                      <span className="text-[10px] w-[38px] text-right" style={{ color }}>{label}</span>
+                      <span className="text-[10px] w-[38px] text-right text-[var(--lc)]" style={{'--lc': color} as CSSProperties}>{label}</span>
                       <input
                         type="range" min={0} max={1} step={0.05}
                         value={value}
                         onChange={e => { set(Number(e.target.value)) }}
-                        style={{ accentColor: color, width: 100, cursor: 'pointer' }}
+                        style={{ accentColor: color }}
+                        className="w-[100px] cursor-pointer"
                       />
                       <span className="text-[10px] text-text-muted w-[28px]">{Math.round(value * 100)}%</span>
                     </div>
@@ -2507,7 +2510,7 @@ className={cn(inpCls, 'resize-y leading-relaxed font-mono text-xs')}
                         type="range" min={0} max={1} step={0.1}
                         value={diversityFactor}
                         onChange={e => setDiversityFactor(Number(e.target.value))}
-                        style={{ accentColor: '#f59e0b', width: 100, cursor: 'pointer' }}
+                        className="w-[100px] accent-amber-400 cursor-pointer"
                       />
                       <span className={cn('text-[10px] font-bold min-w-[30px]', diversityFactor > 0 ? 'text-[#f59e0b]' : 'text-text-muted')}>
                         {Math.round(diversityFactor * 100)}%
@@ -2592,11 +2595,12 @@ className={cn(inpCls, 'resize-y leading-relaxed font-mono text-xs')}
                       <div
                         key={i}
                         onClick={() => { setActiveLineupIdx(i); setResult(null) }}
-                        className="px-3.5 py-[9px] cursor-pointer border-b border-[#1e293b22] transition-colors"
-                        style={{
-                          borderLeft: `3px solid ${i === activeLineupIdx ? '#3b82f6' : lu.isAffected ? '#ef4444' : 'transparent'}`,
-                          background: i === activeLineupIdx ? '#1e3a5f22' : 'transparent',
-                        }}
+                        className={cn(
+                          'px-3.5 py-[9px] cursor-pointer border-b border-[#1e293b22] transition-colors border-l-[3px]',
+                          i === activeLineupIdx ? 'border-l-blue-500 bg-[#1e3a5f22]' :
+                          lu.isAffected ? 'border-l-red-500 bg-transparent' :
+                          'border-l-transparent bg-transparent'
+                        )}
                       >
                         <div className="flex justify-between items-center mb-[3px]">
                           <span className={cn("text-xs font-bold", i === activeLineupIdx ? "text-[#60a5fa]" : "text-text-primary")}>{lu.label}</span>
@@ -2657,7 +2661,7 @@ className={cn(inpCls, 'resize-y leading-relaxed font-mono text-xs')}
                             <div className="flex gap-2 items-center flex-wrap">
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[11px] text-text-muted">Variance</span>
-                                <input type="range" min={0} max={100} step={5} value={randomness} onChange={e => { setRandomness(Number(e.target.value)); setResult(null) }} style={{ width: 70, accentColor: '#a78bfa', cursor: 'pointer' }} />
+                                <input type="range" min={0} max={100} step={5} value={randomness} onChange={e => { setRandomness(Number(e.target.value)); setResult(null) }} className="w-[70px] accent-violet-400 cursor-pointer" />
                                 <span className={cn("text-[11px] font-bold min-w-[28px]", randomness === 0 ? "text-text-muted" : "text-[#a78bfa]")}>{randomness}%</span>
                               </div>
                               <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)} className="bg-surface-border text-text-secondary border border-surface-border rounded px-2 py-1 text-[11px] cursor-pointer outline-none">
@@ -2712,7 +2716,7 @@ className={cn(inpCls, 'resize-y leading-relaxed font-mono text-xs')}
                               <span className="px-1.5 py-px bg-[#1e3a5f] text-[#38bdf8] rounded font-semibold">CORR</span>
                               <span className="ml-auto text-[11px]">
                                 <strong className="text-text-primary">{result.current_salary.toLocaleString()}</strong>/{result.salary_cap.toLocaleString()}
-                                {' � '}<span style={{ color: result.salary_cap - result.current_salary < 2000 ? '#ef4444' : '#22c55e' }}>{(result.salary_cap - result.current_salary).toLocaleString()} left</span>
+                                {' � '}<span className={cn(result.salary_cap - result.current_salary < 2000 ? 'text-red-500' : 'text-green-400')}>{(result.salary_cap - result.current_salary).toLocaleString()} left</span>
                               </span>
                             </div>
                             {result.swaps.map((swap, i) => (
@@ -2799,7 +2803,7 @@ className={cn(inpCls, 'resize-y leading-relaxed font-mono text-xs')}
                     <div className="w-px h-8 bg-surface-border mx-1" />
                     <div className="flex items-center gap-[7px]">
                       <span className="text-[11px] text-text-muted">Variance</span>
-                      <input type="range" min={0} max={100} step={5} value={randomness} onChange={e => { setRandomness(Number(e.target.value)); setResult(null) }} style={{ width: 80, accentColor: randomness > 0 ? '#a78bfa' : '#334155', cursor: 'pointer' }} />
+                      <input type="range" min={0} max={100} step={5} value={randomness} onChange={e => { setRandomness(Number(e.target.value)); setResult(null) }} className={cn('w-[80px] cursor-pointer', randomness > 0 ? 'accent-violet-400' : 'accent-slate-700')} />
                       <span className={cn("text-xs font-bold min-w-[30px]", randomness === 0 ? "text-text-muted" : "text-[#a78bfa]")}>{randomness}%</span>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -2819,10 +2823,13 @@ className={cn(inpCls, 'resize-y leading-relaxed font-mono text-xs')}
                       return (
                         <div className="flex items-center gap-2 ml-auto">
                           <div className="w-[100px] h-[6px] bg-surface-border rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-[width] duration-300" style={{ width: `${pct}%`, background: pct > 95 ? '#ef4444' : pct > 85 ? '#f97316' : '#22c55e' }} />
+                            <div
+                              className={cn('h-full rounded-full transition-[width] duration-300 w-[var(--pw)]', pct > 95 ? 'bg-red-500' : pct > 85 ? 'bg-orange-500' : 'bg-green-400')}
+                              style={{'--pw': `${pct}%`} as CSSProperties}
+                            />
                           </div>
                           <span className="text-[11px] text-text-muted">
-                            <strong className="text-text-primary">{used.toLocaleString()}</strong>/{cap.toLocaleString()} � <span style={{ color: remaining < 2000 ? '#ef4444' : '#22c55e' }}>{remaining.toLocaleString()} left</span>
+                            <strong className="text-text-primary">{used.toLocaleString()}</strong>/{cap.toLocaleString()} � <span className={cn(remaining < 2000 ? 'text-red-500' : 'text-green-400')}>{remaining.toLocaleString()} left</span>
                           </span>
                         </div>
                       )

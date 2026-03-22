@@ -40,7 +40,6 @@ COPY backend/       ./backend/
 COPY workers/       ./workers/
 COPY scripts/       ./scripts/
 COPY news_engine/   ./news_engine/
-COPY optimizer/     ./optimizer/
 
 # Runtime directories (overridden by volume mounts in production)
 RUN mkdir -p \

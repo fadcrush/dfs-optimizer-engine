@@ -15,7 +15,7 @@ export default function TermsPage() {
         <p className="text-xs text-text-muted mb-8">Effective date: {EFFECTIVE_DATE}</p>
 
         <Section title="1. Acceptance of Terms">
-          <p>By creating an account or using DFS Edge Pro ("Service"), you agree to these Terms of Service ("Terms"). If you do not agree, do not use the Service.</p>
+          <p>By creating an account or using DFS Edge Pro (&ldquo;Service&rdquo;), you agree to these Terms of Service (&ldquo;Terms&rdquo;). If you do not agree, do not use the Service.</p>
         </Section>
 
         <Section title="2. Description of Service">
@@ -51,7 +51,7 @@ export default function TermsPage() {
           <p>You agree not to:</p>
           <ul>
             <li>Use the Service for any unlawful purpose or in violation of any applicable law.</li>
-            <li>Reverse engineer, scrape, or attempt to extract the Service's algorithms, models, or data in bulk.</li>
+            <li>Reverse engineer, scrape, or attempt to extract the Service&apos;s algorithms, models, or data in bulk.</li>
             <li>Share your account credentials with others or resell access.</li>
             <li>Upload malicious files or attempt to compromise the security of the platform.</li>
             <li>Use the Service to facilitate cheating, multi-accounting, or collusion on DFS platforms.</li>
@@ -59,7 +59,7 @@ export default function TermsPage() {
         </Section>
 
         <Section title="7. Disclaimer of Warranties">
-          <p>THE SERVICE IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND. DFS EDGE PRO DOES NOT WARRANT THAT PROJECTIONS, OWNERSHIP ESTIMATES, OR OPTIMIZER OUTPUTS ARE ACCURATE, COMPLETE, OR PROFITABLE. DAILY FANTASY SPORTS INVOLVE RISK AND PAST PERFORMANCE DOES NOT GUARANTEE FUTURE RESULTS.</p>
+          <p>THE SERVICE IS PROVIDED &ldquo;AS IS&rdquo; WITHOUT WARRANTIES OF ANY KIND. DFS EDGE PRO DOES NOT WARRANT THAT PROJECTIONS, OWNERSHIP ESTIMATES, OR OPTIMIZER OUTPUTS ARE ACCURATE, COMPLETE, OR PROFITABLE. DAILY FANTASY SPORTS INVOLVE RISK AND PAST PERFORMANCE DOES NOT GUARANTEE FUTURE RESULTS.</p>
         </Section>
 
         <Section title="8. Limitation of Liability">

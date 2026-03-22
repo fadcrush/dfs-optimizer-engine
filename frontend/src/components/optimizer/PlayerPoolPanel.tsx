@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils'
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type PoolStatus = 'included' | 'excluded'
+export type PoolStatus = 'included' | 'excluded' | 'locked'
 
 export interface PlayerPoolEntry {
   /** Stable key: `${name}::${team}` */
@@ -157,6 +157,13 @@ export function getPoolExcludedNames(poolMap: PlayerPoolMap): string[] {
   return names
 }
 
+/** Names of all locked players — passed as `locked_players` to backend (forced into every lineup) */
+export function getPoolLockedNames(poolMap: PlayerPoolMap): string[] {
+  const names: string[] = []
+  poolMap.forEach(e => { if (e.poolStatus === 'locked') names.push(e.name) })
+  return names
+}
+
 /** Only entries where adjProj differs from stockProj — passed as `projection_overrides` */
 export function getPoolProjectionOverrides(poolMap: PlayerPoolMap): Record<string, number> {
   const overrides: Record<string, number> = {}
@@ -187,7 +194,7 @@ export function validatePool(poolMap: PlayerPoolMap, site: 'FD' | 'DK'): PoolVal
   const totalCount = poolMap.size
 
   poolMap.forEach(e => {
-    if (e.poolStatus === 'included') {
+    if (e.poolStatus === 'included' || e.poolStatus === 'locked') {
       includedCount++
       // Split multi-position eligibility strings (e.g. "SG/SF", "PG/SG") so
       // each component position gets counted independently.
@@ -273,7 +280,8 @@ export function PlayerPoolPanel({
 
   const allEntries = useMemo(() => Array.from(poolMap.values()), [poolMap])
   const totalCount    = allEntries.length
-  const includedCount = allEntries.filter(e => e.poolStatus === 'included').length
+  const lockedCount   = allEntries.filter(e => e.poolStatus === 'locked').length
+  const includedCount = allEntries.filter(e => e.poolStatus === 'included' || e.poolStatus === 'locked').length
   const excludedCount = allEntries.filter(e => e.poolStatus === 'excluded').length
 
   const allPositions = useMemo(() => {
@@ -309,8 +317,8 @@ export function PlayerPoolPanel({
     })
   }, [allEntries, viewFilter, posFilter, search, sortKey, sortDesc])
 
-  const allVisibleIncluded = visibleEntries.length > 0 && visibleEntries.every(e => e.poolStatus === 'included')
-  const someVisibleIncluded = visibleEntries.some(e => e.poolStatus === 'included')
+  const allVisibleIncluded = visibleEntries.length > 0 && visibleEntries.every(e => e.poolStatus !== 'excluded')
+  const someVisibleIncluded = visibleEntries.some(e => e.poolStatus !== 'excluded')
 
   const validation = useMemo(() => validatePool(poolMap, site), [poolMap, site])
 
@@ -331,7 +339,17 @@ export function PlayerPoolPanel({
     const e = poolMap.get(id)
     if (!e) return
     const next = new Map(poolMap)
-    next.set(id, { ...e, poolStatus: e.poolStatus === 'included' ? 'excluded' : 'included' })
+    // Locked → Included (remove lock, keep in pool); Included → Excluded; Excluded → Included
+    const newStatus: PoolStatus = e.poolStatus === 'locked' ? 'included' : e.poolStatus === 'included' ? 'excluded' : 'included'
+    next.set(id, { ...e, poolStatus: newStatus })
+    onPoolMapChange(next)
+  }
+
+  const toggleLock = (id: string) => {
+    const e = poolMap.get(id)
+    if (!e) return
+    const next = new Map(poolMap)
+    next.set(id, { ...e, poolStatus: e.poolStatus === 'locked' ? 'included' : 'locked' })
     onPoolMapChange(next)
   }
 
@@ -356,8 +374,9 @@ export function PlayerPoolPanel({
   }
 
   const toggleBulkVisible = () => {
+    // Only toggle non-locked entries; locked players remain locked
     const newStatus: PoolStatus = allVisibleIncluded ? 'excluded' : 'included'
-    update(visibleEntries.map(e => [e.id, { poolStatus: newStatus }]))
+    update(visibleEntries.filter(e => e.poolStatus !== 'locked').map(e => [e.id, { poolStatus: newStatus }]))
   }
 
   // ── Top-N-per-team preset ────────────────────────────────────────────────
@@ -456,12 +475,27 @@ export function PlayerPoolPanel({
         <div className="w-9 flex-shrink-0 flex items-center justify-center px-2">
           <input
             type="checkbox"
-            checked={entry.poolStatus === 'included'}
+            checked={entry.poolStatus !== 'excluded'}
             onChange={() => togglePlayer(entry.id)}
             className="cursor-pointer accent-primary"
-            aria-label={`${entry.poolStatus === 'included' ? 'Exclude' : 'Include'} ${entry.name}`}
+            aria-label={`${entry.poolStatus !== 'excluded' ? 'Exclude' : 'Include'} ${entry.name}`}
           />
         </div>
+        {/* Lock button */}
+        <button
+          type="button"
+          onClick={(ev) => { ev.stopPropagation(); toggleLock(entry.id) }}
+          title={entry.poolStatus === 'locked' ? 'Unlock player' : 'Lock into every lineup'}
+          className={cn(
+            'w-6 flex-shrink-0 flex items-center justify-center text-[12px] rounded transition-colors',
+            entry.poolStatus === 'locked'
+              ? 'text-emerald-400 hover:text-emerald-300'
+              : 'text-surface-border hover:text-emerald-500',
+          )}
+          aria-label={entry.poolStatus === 'locked' ? `Unlock ${entry.name}` : `Lock ${entry.name}`}
+        >
+          🔒
+        </button>
         {/* Name */}
         <div
           className={cn(
@@ -538,7 +572,11 @@ export function PlayerPoolPanel({
         </div>
         {/* Status badge */}
         <div className="w-20 flex-shrink-0 px-2 flex items-center justify-center">
-          {excluded ? (
+          {entry.poolStatus === 'locked' ? (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-900/50 text-emerald-400 border border-emerald-500/40">
+              LOCKED
+            </span>
+          ) : excluded ? (
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-danger-muted text-danger border border-danger/30">
               OUT
             </span>
@@ -574,6 +612,11 @@ export function PlayerPoolPanel({
           <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-success-muted border border-success/30 text-success">
             {includedCount} in pool
           </span>
+          {lockedCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-900/50 border border-emerald-500/40 text-emerald-400">
+              🔒 {lockedCount} locked
+            </span>
+          )}
           {excludedCount > 0 && (
             <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-danger-muted border border-danger/30 text-danger">
               {excludedCount} excluded

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
 
 export type Column<T> = {
@@ -132,12 +132,13 @@ export function DataTable<T extends { [key: string]: unknown }>({
                 return (
                   <th
                     key={String(col.key)}
+                    style={col.width ? {'--col-w': col.width} as CSSProperties : undefined}
                     className={cn(
                       'px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide border-b-2 border-surface-border text-text-muted select-none whitespace-nowrap',
+                      col.width && 'w-[var(--col-w)]',
                       col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left',
                       col.sortable && 'cursor-pointer hover:text-text-primary transition-colors',
                     )}
-                    style={{ width: col.width }}
                     onClick={() => {
                       if (!col.sortable) return
                       const key = String(col.key)

@@ -94,6 +94,7 @@ def init_db():
                     conn.execute(text(ddl))
                 except Exception:
                     pass  # dialect may not support IF NOT EXISTS (SQLite < 3.37)
+            conn.commit()  # DDL must be committed explicitly in SQLAlchemy 2.x
             conn.execute(text("SELECT 1"))
         log.info("[db] Database tables ready.")
         return True

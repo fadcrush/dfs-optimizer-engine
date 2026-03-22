@@ -9,10 +9,10 @@ import { formatSalary, cn } from '@/lib/utils'
 // ---------------------------------------------------------------------------
 
 function projDeltaColor(n: number) {
-  if (n >= 3) return '#22c55e'
-  if (n >= 0) return '#84cc16'
-  if (n >= -3) return '#f97316'
-  return '#ef4444'
+  if (n >= 3) return 'text-green-400'
+  if (n >= 0) return 'text-lime-500'
+  if (n >= -3) return 'text-orange-500'
+  return 'text-red-500'
 }
 function sign(n: number) { return n >= 0 ? '+' : '' }
 
@@ -25,11 +25,11 @@ function getLineupStatus(log: BatchSwapLineupLog): StatusType {
   return 'failed'
 }
 
-const STATUS_BADGE: Record<StatusType, { bg: string; color: string; text: string }> = {
-  success: { bg: '#14532d', color: '#4ade80',  text: 'SUCCESS'  },
-  partial: { bg: '#78350f', color: '#fde68a',  text: 'PARTIAL'  },
-  failed:  { bg: '#450a0a', color: '#fca5a5',  text: 'FAILED'   },
-  clean:   { bg: '#0c2240', color: '#38bdf8',  text: 'CLEAN'    },
+const STATUS_BADGE: Record<StatusType, { cls: string; text: string }> = {
+  success: { cls: 'bg-[#14532d] text-[#4ade80]',  text: 'SUCCESS'  },
+  partial: { cls: 'bg-[#78350f] text-[#fde68a]',  text: 'PARTIAL'  },
+  failed:  { cls: 'bg-[#450a0a] text-[#fca5a5]',  text: 'FAILED'   },
+  clean:   { cls: 'bg-[#0c2240] text-[#38bdf8]',  text: 'CLEAN'    },
 }
 
 const thCls = 'px-2.5 py-[7px] text-[10px] font-bold uppercase tracking-[0.05em] text-[#64748b] border-b-2 border-surface-border text-left whitespace-nowrap bg-[#0f172a] sticky top-0 cursor-pointer select-none'
@@ -102,10 +102,10 @@ export function BatchSwapResultsTable({
               {counts.failed} failed
             </span>
           )}
-          <span className="text-[11px]" style={{ color: totalProjDelta >= 0 ? '#22c55e' : '#ef4444' }}>
+          <span className={cn('text-[11px]', totalProjDelta >= 0 ? 'text-green-400' : 'text-red-500')}>
             Total FPTS: {sign(totalProjDelta)}{totalProjDelta.toFixed(1)}
           </span>
-          <span className="text-[11px]" style={{ color: successRate >= 80 ? '#22c55e' : successRate >= 50 ? '#fde68a' : '#fca5a5' }}>
+          <span className={cn('text-[11px]', successRate >= 80 ? 'text-green-400' : successRate >= 50 ? 'text-[#fde68a]' : 'text-[#fca5a5]')}>
             {successRate}% clean
           </span>
         </div>
@@ -121,11 +121,8 @@ export function BatchSwapResultsTable({
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className="px-2.5 py-[3px] rounded-[5px] border-none text-[11px] font-semibold cursor-pointer uppercase tracking-[0.04em]"
-                style={{
-                  background: filter === f ? '#1e3a5f' : '#0f172a',
-                  color: filter === f ? '#60a5fa' : '#475569',
-                }}
+                className={cn('px-2.5 py-[3px] rounded-[5px] border-none text-[11px] font-semibold cursor-pointer uppercase tracking-[0.04em]',
+                  filter === f ? 'bg-[#1e3a5f] text-blue-400' : 'bg-[#0f172a] text-[#475569]')}
               >
                 {f === 'all' ? `All (${rows.length})` : `${f} (${counts[f] ?? 0})`}
               </button>
@@ -154,19 +151,15 @@ export function BatchSwapResultsTable({
                     <tr
                       key={log.lineup_index}
                       onClick={() => onSelectLineup(zeroIdx)}
-                      className="cursor-pointer"
-                      style={{
-                        background: isActive ? '#1e3a5f22' : 'transparent',
-                        borderLeft: `3px solid ${isActive ? '#3b82f6' : 'transparent'}`,
-                        transition: 'background 0.1s',
-                      }}
+                      className={cn('cursor-pointer border-l-[3px] transition-colors duration-100',
+                        isActive ? 'border-l-blue-500 bg-[#1e3a5f22]' : 'border-l-transparent bg-transparent')}
                     >
-                      <td className={cn(tdCls, 'font-bold')} style={{ color: isActive ? '#60a5fa' : '#f1f5f9' }}>
+                      <td className={cn(tdCls, 'font-bold', isActive ? 'text-blue-400' : 'text-[#f1f5f9]')}>
                         Lineup {log.lineup_index}
                         {isActive && <span className="text-[9px] ml-[5px] text-[#3b82f6] font-bold">▶ active</span>}
                       </td>
                       <td className={tdCls}>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-[5px]" style={{ background: badge.bg, color: badge.color }}>
+                        <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-[5px]', badge.cls)}>
                           {badge.text}
                         </span>
                       </td>
@@ -174,20 +167,20 @@ export function BatchSwapResultsTable({
                       <td className={cn(tdCls, log.swaps_failed > 0 ? 'text-[#fca5a5] font-bold' : 'text-[#475569]')}>
                         {log.swaps_failed}
                       </td>
-                      <td className={cn(tdCls, 'font-bold')} style={{ color: projDeltaColor(tpd) }}>
+                      <td className={cn(tdCls, 'font-bold', projDeltaColor(tpd))}>
                         {tpd !== 0 ? `${sign(tpd)}${tpd.toFixed(1)}` : '—'}
                       </td>
                       <td className={tdCls}>{formatSalary(log.total_salary)}</td>
-                      <td className={tdCls} style={{ color: capLeft < 1000 ? '#ef4444' : capLeft < 3000 ? '#f97316' : '#22c55e' }}>
+                      <td className={cn(tdCls, capLeft < 1000 ? 'text-red-500' : capLeft < 3000 ? 'text-orange-500' : 'text-green-400')}>
                         ${capLeft.toLocaleString()}
                       </td>
                       <td className={cn(tdCls, 'text-[#475569]')}>
                         <div className="flex flex-wrap gap-[3px]">
                           {log.swaps.map((sw, j) => (
-                            <span key={j} className="text-[10px] px-[5px] py-px rounded-[3px]" style={{ background: sw.replacement ? '#0a2318' : '#2d0a0a', color: sw.replacement ? '#86efac' : '#fca5a5' }}>
+                            <span key={j} className={cn('text-[10px] px-[5px] py-px rounded-[3px]', sw.replacement ? 'bg-[#0a2318] text-[#86efac]' : 'bg-[#2d0a0a] text-[#fca5a5]')}>
                               {sw.scratched} → {sw.replacement ?? '—'}
                               {sw.replacement && sw.proj_delta != null && sw.proj_delta !== 0 && (
-                                <span className="ml-0.5" style={{ color: sw.proj_delta >= 0 ? '#4ade80' : '#f87171' }}>
+                                <span className={cn('ml-0.5', sw.proj_delta >= 0 ? 'text-green-400' : 'text-red-400')}>
                                   ({sign(sw.proj_delta)}{sw.proj_delta.toFixed(1)})
                                 </span>
                               )}
