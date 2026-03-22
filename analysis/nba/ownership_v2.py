@@ -45,60 +45,52 @@ LEAGUE_AVG_TEAM_TOTAL = 112.0
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _ensure_ownership_db() -> None:
-    """Create ownership_history.duckdb with schema if it doesn't exist."""
-    try:
-        import duckdb
-        OWNERSHIP_DB.parent.mkdir(parents=True, exist_ok=True)
-        con = duckdb.connect(str(OWNERSHIP_DB))
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS ownership_history (
-                player_name     VARCHAR NOT NULL,
-                game_date       DATE    NOT NULL,
-                site            VARCHAR NOT NULL,
-                slate_id        VARCHAR DEFAULT '',
-                actual_own_pct  FLOAT   NOT NULL,
-                proj_at_lock    FLOAT   DEFAULT NULL,
-                salary          INTEGER DEFAULT NULL,
-                team_total      FLOAT   DEFAULT NULL,
-                is_home         BOOLEAN DEFAULT NULL,
-                contest_type    VARCHAR DEFAULT 'gpp',
-                PRIMARY KEY (player_name, game_date, site, slate_id)
-            )
-        """)
-        con.close()
-    except Exception as exc:
-        log.warning("Could not ensure ownership_history DB: %s", exc)
+    """No-op — ownership_history table is now managed by SQLAlchemy in Postgres.
+    Kept for call-site compatibility only."""
+    pass
 
 
 def _load_training_data(sport: str, site: str) -> pd.DataFrame:
     """
     Load ownership history for model training, enriched with game-log features.
 
-    Base features come from ownership_history.duckdb (seeded from salary files).
-    Enriched features come from dfs_edge.duckdb::player_game_logs:
+    Base features come from the postgres ownership_history table (seeded from
+    salary files / lineup imports).  Enriched features come from
+    dfs_edge.duckdb::player_game_logs:
 
       l10_avg  — rolling 10-game average DK/FD pts (better proj proxy)
       l10_std  — rolling 10-game std dev (consistency — low σ → higher ownership)
       is_home  — filled in from game_logs where NULL in training rows
 
-    Falls back gracefully if dfs_edge.duckdb is unavailable or locked.
+    Falls back gracefully if the DB is unavailable or locked.
     """
-    _ensure_ownership_db()
-    if not OWNERSHIP_DB.exists():
+    import os as _os
+
+    db_url = _os.getenv("DATABASE_URL")
+    if not db_url:
+        log.warning("DATABASE_URL not set — cannot load ownership training data")
         return pd.DataFrame()
+
     try:
-        import duckdb
-        con = duckdb.connect(str(OWNERSHIP_DB), read_only=True)
-        df = con.execute("""
-            SELECT player_name, game_date, actual_own_pct, proj_at_lock, salary,
-                   team_total, is_home, contest_type
-            FROM ownership_history
-            WHERE site = ?
-            ORDER BY game_date ASC
-        """, [site.upper()]).df()
-        con.close()
+        from sqlalchemy import create_engine, text as _text
+
+        engine = create_engine(db_url, pool_pre_ping=True)
+        with engine.connect() as conn:
+            result = conn.execute(
+                _text("""
+                    SELECT player_name, game_date, actual_own_pct, proj_at_lock,
+                           salary, team_total, is_home, contest_type
+                    FROM ownership_history
+                    WHERE site = :site
+                    ORDER BY game_date ASC
+                """),
+                {"site": site.upper()},
+            )
+            rows = result.fetchall()
+            df = pd.DataFrame(rows, columns=list(result.keys()))
+        engine.dispose()
     except Exception as exc:
-        log.warning("Could not load ownership training data: %s", exc)
+        log.warning("Could not load ownership training data from Postgres: %s", exc)
         return pd.DataFrame()
 
     if df.empty:
@@ -241,6 +233,7 @@ def import_lineups_to_history(
 
     Returns a summary dict: {status, rows_imported, files_read}
     """
+    import os as _os
     from pathlib import Path as _Path
     import re as _re
 
@@ -256,12 +249,23 @@ def import_lineups_to_history(
     rows_imported = 0
     files_read = 0
 
-    _ensure_ownership_db()
+    db_url = _os.getenv("DATABASE_URL")
+    if not db_url:
+        return {"status": "error", "error": "DATABASE_URL not set"}
 
     try:
-        import duckdb
+        from sqlalchemy import create_engine
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        con = duckdb.connect(str(OWNERSHIP_DB))
+        # Inline import of the ORM model — avoids circular import at module level
+        import sys as _sys
+        _backend = ROOT / "backend"
+        if str(_backend) not in _sys.path:
+            _sys.path.insert(0, str(_backend))
+        from models.analytics import OwnershipHistory  # type: ignore[import]
+        from sqlalchemy.orm import Session
+
+        engine = create_engine(db_url, pool_pre_ping=True)
 
         for fpath in csv_files:
             try:
@@ -302,40 +306,43 @@ def import_lineups_to_history(
             ).round(2)
 
             insert_rows = [
-                (
-                    str(row["player"]),   # player_name
-                    row_date,             # game_date
-                    row_site,             # site
-                    fpath.stem,           # slate_id
-                    float(row["ownership_pct"]),  # actual_own_pct
-                    None,                 # proj_at_lock (unknown from lineup file)
-                    None,                 # salary
-                    None,                 # team_total
-                    None,                 # is_home
-                    contest_type,         # contest_type
-                )
+                {
+                    "player_name": str(row["player"]),
+                    "game_date": row_date,
+                    "site": row_site,
+                    "slate_id": fpath.stem,
+                    "actual_own_pct": float(row["ownership_pct"]),
+                    "proj_at_lock": None,
+                    "salary": None,
+                    "team_total": None,
+                    "is_home": None,
+                    "contest_type": contest_type,
+                    "own_source": "lineup_import",
+                }
                 for _, row in ownership.iterrows()
             ]
 
-            con.executemany(
-                """INSERT OR REPLACE INTO ownership_history
-                   (player_name, game_date, site, slate_id, actual_own_pct,
-                    proj_at_lock, salary, team_total, is_home, contest_type)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                insert_rows,
-            )
-            rows_imported += len(insert_rows)
-            files_read += 1
+            if insert_rows:
+                with Session(engine) as session:
+                    stmt = pg_insert(OwnershipHistory).values(insert_rows)
+                    stmt = stmt.on_conflict_do_update(
+                        constraint="uq_ownership_history",
+                        set_={"actual_own_pct": stmt.excluded.actual_own_pct},
+                    )
+                    session.execute(stmt)
+                    session.commit()
+                rows_imported += len(insert_rows)
+                files_read += 1
 
-        con.close()
+        engine.dispose()
 
     except Exception as exc:
         log.warning("Ownership history import failed: %s", exc)
         return {"status": "error", "error": str(exc)}
 
     log.info(
-        "Ownership history import: %d rows from %d files → %s",
-        rows_imported, files_read, OWNERSHIP_DB,
+        "Ownership history import: %d rows from %d files → Postgres ownership_history",
+        rows_imported, files_read,
     )
     return {"status": "ok", "rows_imported": rows_imported, "files_read": files_read}
 

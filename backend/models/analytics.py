@@ -1,12 +1,13 @@
 """
-SQLAlchemy models for analytics tables — migrated from DuckDB (dfs_master.duckdb)
-to Postgres so they share the same transactional store as the ``users`` table.
+SQLAlchemy models for analytics tables — migrated from DuckDB to Postgres
+so they share the same transactional store as the ``users`` table.
 
 Tables
 ------
 contest_results    — per-user ROI tracking (one row per contest entry)
 projection_log     — per-user projection accuracy (one row per player-slate)
 ownership_actuals  — ownership calibration (actual vs predicted %)
+ownership_history  — GBR model training data (replaces ownership_history.duckdb)
 """
 
 from datetime import date as _date, datetime, timezone
@@ -85,4 +86,41 @@ class OwnershipActual(Base):
     __table_args__ = (
         UniqueConstraint("game_date", "site", "player_name", "slate_id", name="uq_ownership_actual"),
         Index("ix_ownership_actuals_date_site", "game_date", "site"),
+    )
+
+
+class OwnershipHistory(Base):
+    """GBR ownership model training data — one row per player per contest slate.
+
+    Replaces ``data/ownership_history.duckdb``.  Moved to Postgres so concurrent
+    writes from multiple uvicorn/Celery workers don't collide.
+
+    Distinct from ``ownership_actuals``:
+      - ownership_actuals  : per-user accuracy display (predicted vs actual)
+      - ownership_history  : model training features (may include synthetic rows)
+    """
+
+    __tablename__ = "ownership_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    player_name = Column(String, nullable=False)
+    game_date = Column(Date, nullable=False)
+    site = Column(String, nullable=False)            # DK or FD
+    slate_id = Column(String, default="")
+    actual_own_pct = Column(Double, nullable=False)
+    proj_at_lock = Column(Double, nullable=True)
+    salary = Column(Integer, nullable=True)
+    team_total = Column(Double, nullable=True)
+    is_home = Column(Boolean, nullable=True)
+    contest_type = Column(String, default="gpp")
+    own_source = Column(String, default="real")      # "real", "synthetic", "lineup_import"
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "game_date", "site", "player_name", "slate_id", "own_source",
+            name="uq_ownership_history",
+        ),
+        Index("ix_ownership_history_date_site", "game_date", "site"),
+        Index("ix_ownership_history_player", "player_name"),
     )

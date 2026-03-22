@@ -48,7 +48,7 @@ def _edge():
 
 # Import Postgres session factory — may be None if DATABASE_URL is unset.
 from database.db import SessionLocal, engine
-from models.analytics import ContestResult, ProjectionLog, OwnershipActual
+from models.analytics import ContestResult, ProjectionLog, OwnershipActual, OwnershipHistory
 
 
 def _pg_session():
@@ -75,12 +75,53 @@ def init_analytics_tables() -> None:
         log.warning("analytics table init skipped — DATABASE_URL not set.")
         return
     try:
-        from models.analytics import ContestResult, ProjectionLog, OwnershipActual  # noqa: F811
-        from models.user import Base
+        from models.analytics import ContestResult, ProjectionLog, OwnershipActual, OwnershipHistory  # noqa: F811
+        from models.user import Base, User
         Base.metadata.create_all(bind=engine)
         log.info("[analytics] Postgres tables ready.")
+        # In local-dev / auth-disabled mode seed a synthetic user row so FK
+        # writes succeed without a real Supabase auth user.
+        import os as _os
+        if _os.getenv("DFS_DISABLE_AUTH"):
+            _seed_dev_user()
     except Exception as exc:
         log.warning("analytics table init failed: %s", exc)
+
+
+def _seed_dev_user() -> None:
+    """Ensure a placeholder 'local-dev-user' row exists in the users table."""
+    from sqlalchemy import text as _text
+    sess = SessionLocal()
+    try:
+        sess.execute(_text("""
+            INSERT INTO users (id, email, password_hash, email_verified, tier)
+            VALUES ('local-dev-user', 'dev@local.invalid', '', true, 'pro')
+            ON CONFLICT (id) DO NOTHING
+        """))
+        sess.commit()
+        log.info("[analytics] Seeded local-dev-user row.")
+    except Exception as exc:
+        sess.rollback()
+        log.warning("[analytics] Could not seed dev user: %s", exc)
+    finally:
+        sess.close()
+
+
+def _ensure_user_exists(session, user_id: str) -> None:
+    """Insert a minimal user stub if user_id is not in the users table.
+
+    Prevents FK violations when analytics writes happen before the user row
+    is fully propagated (e.g. dev mode, race conditions at signup).
+    Uses raw SQL with only guaranteed-base columns to survive any schema version.
+    """
+    from sqlalchemy import text as _text
+    stmt = _text("""
+        INSERT INTO users (id, email, password_hash, email_verified, tier)
+        VALUES (:id, :email, '', false, 'free')
+        ON CONFLICT (id) DO NOTHING
+    """)
+    session.execute(stmt, {"id": user_id, "email": f"{user_id}@placeholder.invalid"})
+    session.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +144,8 @@ def log_contest_result(
     """Write a single contest result row. Returns True on success."""
     session = _pg_session()
     try:
+        if user_id:
+            _ensure_user_exists(session, user_id)
         row = ContestResult(
             contest_date=contest_date,
             contest_type=contest_type.lower(),
@@ -213,6 +256,8 @@ def log_projections(projections: list[dict], slate_date: date, site: str, user_i
         return 0
     session = _pg_session()
     try:
+        if user_id:
+            _ensure_user_exists(session, user_id)
         objs = [
             ProjectionLog(
                 slate_date=slate_date,
@@ -505,43 +550,39 @@ def synthesize_ownership_from_slate(
 
     work["synthetic_own"] = own_arr.round(1)
 
-    # Write to ownership_history.duckdb
+    # Write to ownership_history table in Postgres
     seeded = 0
     try:
-        from analysis.nba.ownership_v2 import _ensure_ownership_db, OWNERSHIP_DB
-        import duckdb
-        _ensure_ownership_db()
-        rows = [
-            (
-                str(r["name"]),
-                str(game_date),
-                site.upper(),
-                slate_id or str(game_date),
-                float(r["synthetic_own"]),
-                float(r["fppg"]),
-                int(r["salary"]) if "salary" in r and pd.notna(r["salary"]) else None,
-                None,  # team_total
-                None,  # is_home
-                contest_type.lower(),
-                "synthetic",  # own_source flag
-            )
-            for _, r in work.iterrows()
-        ]
-        with duckdb.connect(str(OWNERSHIP_DB)) as own_con:
-            # Add own_source to schema if not present (migration)
-            try:
-                own_con.execute("ALTER TABLE ownership_history ADD COLUMN IF NOT EXISTS own_source VARCHAR")
-            except Exception:
-                pass
-            own_con.executemany(
-                """INSERT OR REPLACE INTO ownership_history
-                   (player_name, game_date, site, slate_id, actual_own_pct,
-                    proj_at_lock, salary, team_total, is_home, contest_type, own_source)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                rows,
-            )
-        seeded = len(rows)
-        log.info("Seeded %d synthetic ownership rows from slate", seeded)
+        from sqlalchemy.dialects.postgresql import insert as _pg_insert
+        session = _pg_session()
+        try:
+            for _, r in work.iterrows():
+                stmt = _pg_insert(OwnershipHistory).values(
+                    player_name=str(r["name"]),
+                    game_date=game_date,
+                    site=site.upper(),
+                    slate_id=slate_id or str(game_date),
+                    actual_own_pct=float(r["synthetic_own"]),
+                    proj_at_lock=float(r["fppg"]),
+                    salary=int(r["salary"]) if "salary" in r and pd.notna(r.get("salary")) else None,
+                    team_total=None,
+                    is_home=None,
+                    contest_type=contest_type.lower(),
+                    own_source="synthetic",
+                ).on_conflict_do_update(
+                    constraint="uq_ownership_history",
+                    set_={"actual_own_pct": float(r["synthetic_own"]), "proj_at_lock": float(r["fppg"])},
+                )
+                session.execute(stmt)
+            session.commit()
+            seeded = len(work)
+            log.info("Seeded %d synthetic ownership rows from slate", seeded)
+        except Exception as exc:
+            session.rollback()
+            log.error("synthesize_ownership_from_slate write failed: %s", exc)
+            return {"error": f"Write failed: {exc}", "seeded": 0}
+        finally:
+            session.close()
     except Exception as exc:
         log.error("synthesize_ownership_from_slate write failed: %s", exc)
         return {"error": f"Write failed: {exc}", "seeded": 0}
@@ -706,35 +747,37 @@ def import_ownership_actuals(
     finally:
         pg_session.close()
 
-    # Also write to ownership_history.duckdb for model training
+    # Also write to ownership_history (Postgres) for model training
     try:
-        from analysis.nba.ownership_v2 import _ensure_ownership_db, OWNERSHIP_DB
-        import duckdb
-        _ensure_ownership_db()
-        rows = [
-            (
-                str(r["player_name"]),
-                str(game_date),
-                site.upper(),
-                slate_id,
-                float(r["actual_own_pct"]),
-                float(r["proj"]) if pd.notna(r.get("proj")) else None,
-                None,  # salary (can add later)
-                None,  # team_total
-                None,  # is_home
-                contest_type.lower(),
-            )
-            for _, r in merged.iterrows()
-        ]
-        with duckdb.connect(str(OWNERSHIP_DB)) as own_con:
-            own_con.executemany(
-                """INSERT OR REPLACE INTO ownership_history
-                   (player_name, game_date, site, slate_id, actual_own_pct,
-                    proj_at_lock, salary, team_total, is_home, contest_type)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                rows,
-            )
-        log.info("Wrote %d ownership actuals to training DB", len(rows))
+        from sqlalchemy.dialects.postgresql import insert as _pg_insert2
+        hist_session = _pg_session()
+        try:
+            for _, r in merged.iterrows():
+                stmt = _pg_insert2(OwnershipHistory).values(
+                    player_name=str(r["player_name"]),
+                    game_date=game_date,
+                    site=site.upper(),
+                    slate_id=slate_id,
+                    actual_own_pct=float(r["actual_own_pct"]),
+                    proj_at_lock=float(r["proj"]) if pd.notna(r.get("proj")) else None,
+                    salary=None,
+                    team_total=None,
+                    is_home=None,
+                    contest_type=contest_type.lower(),
+                    own_source="real",
+                ).on_conflict_do_update(
+                    constraint="uq_ownership_history",
+                    set_={"actual_own_pct": float(r["actual_own_pct"]),
+                          "proj_at_lock": float(r["proj"]) if pd.notna(r.get("proj")) else None},
+                )
+                hist_session.execute(stmt)
+            hist_session.commit()
+            log.info("Wrote %d ownership actuals to training DB", len(merged))
+        except Exception as exc:
+            hist_session.rollback()
+            log.warning("Could not write to ownership_history: %s", exc)
+        finally:
+            hist_session.close()
     except Exception as exc:
         log.warning("Could not write to ownership_history: %s", exc)
 
@@ -838,20 +881,20 @@ def get_ownership_model_status() -> dict[str, Any]:
 
     root = _Path(__file__).resolve().parent.parent.parent
     models_dir = root / "data" / "models"
-    own_db = root / "data" / "ownership_history.duckdb"
 
     training_rows: dict[str, int] = {}
     try:
-        import duckdb
-        with duckdb.connect(str(own_db), read_only=True) as con:
+        session = _pg_session()
+        try:
             for site in ("DK", "FD"):
-                try:
-                    count = con.execute(
-                        "SELECT COUNT(*) FROM ownership_history WHERE site = ?", [site]
-                    ).fetchone()[0]
-                    training_rows[site] = int(count)
-                except Exception:
-                    training_rows[site] = 0
+                count = (
+                    session.query(OwnershipHistory)
+                    .filter(OwnershipHistory.site == site)
+                    .count()
+                )
+                training_rows[site] = int(count)
+        finally:
+            session.close()
     except Exception:
         training_rows = {"DK": 0, "FD": 0}
 

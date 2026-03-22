@@ -69,7 +69,7 @@ def _run_startup_tasks() -> None:
         from analysis.shared.db import get_conn
 
         _db_dir = _root / "data"
-        for _db_key in ("dfs_edge", "dfs_master", "projection_cache", "contest_results", "nba_news"):
+        for _db_key in ("dfs_edge", "dfs_master", "contest_results", "nba_news"):
             _db_path = _db_dir / f"{_db_key}.duckdb"
             try:
                 get_conn(_db_path, db_key=_db_key)
