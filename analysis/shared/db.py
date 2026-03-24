@@ -272,6 +272,199 @@ _MIGRATIONS: dict[str, list[tuple[int, str, str | _MigrationFn]]] = {
             );
             """,
         ),
+        (
+            3,
+            "add game_date to lineup_announcements",
+            """
+            ALTER TABLE lineup_announcements
+                ADD COLUMN IF NOT EXISTS game_date DATE;
+            """,
+        ),
+        (
+            4,
+            "injury_events table",
+            """
+            CREATE TABLE IF NOT EXISTS injury_events (
+                event_id                 VARCHAR PRIMARY KEY,
+                player_id                VARCHAR NOT NULL,
+                player_name              VARCHAR(100) NOT NULL,
+                team_id                  VARCHAR(12),
+                game_id                  VARCHAR(64),
+                source                   VARCHAR(80) NOT NULL,
+                source_priority          INTEGER NOT NULL,
+                raw_status               VARCHAR(80),
+                normalized_status        VARCHAR(40),
+                detail_text              TEXT,
+                parser_confidence        DOUBLE DEFAULT 0.5,
+                observed_at              TIMESTAMPTZ NOT NULL,
+                effective_at             TIMESTAMPTZ,
+                is_retraction            BOOLEAN DEFAULT FALSE,
+                correlation_id           VARCHAR(80),
+                market_impact_estimate   DOUBLE DEFAULT 0.0,
+                event_priority_score     DOUBLE DEFAULT 0.0,
+                news_quality_score       DOUBLE DEFAULT 0.0,
+                event_classification     VARCHAR(32) DEFAULT 'pending',
+                created_at               TIMESTAMPTZ DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_injury_events_player_observed
+                ON injury_events(player_id, observed_at);
+            CREATE INDEX IF NOT EXISTS idx_injury_events_priority
+                ON injury_events(event_priority_score, observed_at);
+            """,
+        ),
+        (
+            5,
+            "player_injury_state table",
+            """
+            CREATE TABLE IF NOT EXISTS player_injury_state (
+                player_id                VARCHAR PRIMARY KEY,
+                player_name              VARCHAR(100) NOT NULL,
+                team_id                  VARCHAR(12),
+                game_id                  VARCHAR(64),
+                current_status           VARCHAR(40),
+                p_play                   DOUBLE DEFAULT 1.0,
+                expected_minutes_low     DOUBLE DEFAULT 0.0,
+                expected_minutes_mid     DOUBLE DEFAULT 0.0,
+                expected_minutes_high    DOUBLE DEFAULT 0.0,
+                p_start                  DOUBLE DEFAULT 0.0,
+                p_limited                DOUBLE DEFAULT 0.0,
+                p_late_scratch           DOUBLE DEFAULT 0.0,
+                confidence_score         DOUBLE DEFAULT 0.0,
+                news_quality_score       DOUBLE DEFAULT 0.0,
+                source_agreement_score   DOUBLE DEFAULT 0.0,
+                staleness_score          DOUBLE DEFAULT 0.0,
+                last_event_at            TIMESTAMPTZ,
+                state_version            BIGINT DEFAULT 1,
+                arbitration_context      JSON,
+                updated_at               TIMESTAMPTZ DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_player_injury_state_team
+                ON player_injury_state(team_id, current_status);
+            """,
+        ),
+        (
+            6,
+            "injury_scenarios table",
+            """
+            CREATE TABLE IF NOT EXISTS injury_scenarios (
+                scenario_id              VARCHAR PRIMARY KEY,
+                player_id                VARCHAR NOT NULL,
+                scenario_name            VARCHAR(32) NOT NULL,
+                scenario_probability     DOUBLE NOT NULL,
+                expected_minutes         DOUBLE DEFAULT 0.0,
+                usage_multiplier         DOUBLE DEFAULT 1.0,
+                volatility_multiplier    DOUBLE DEFAULT 1.0,
+                p_start                  DOUBLE DEFAULT 0.0,
+                generated_at             TIMESTAMPTZ DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_injury_scenarios_player
+                ON injury_scenarios(player_id, scenario_name);
+            """,
+        ),
+        (
+            7,
+            "injury_beneficiaries table",
+            """
+            CREATE TABLE IF NOT EXISTS injury_beneficiaries (
+                beneficiary_id           VARCHAR PRIMARY KEY,
+                player_id                VARCHAR NOT NULL,
+                beneficiary_player_id    VARCHAR NOT NULL,
+                beneficiary_name         VARCHAR(100) NOT NULL,
+                team_id                  VARCHAR(12),
+                scenario_name            VARCHAR(32) NOT NULL,
+                delta_minutes            DOUBLE DEFAULT 0.0,
+                delta_usage              DOUBLE DEFAULT 0.0,
+                delta_assist_rate        DOUBLE DEFAULT 0.0,
+                delta_rebound_rate       DOUBLE DEFAULT 0.0,
+                p_start                  DOUBLE DEFAULT 0.0,
+                p_close                  DOUBLE DEFAULT 0.0,
+                volatility_uplift        DOUBLE DEFAULT 0.0,
+                confidence               DOUBLE DEFAULT 0.0,
+                rank_score               DOUBLE DEFAULT 0.0,
+                generated_at             TIMESTAMPTZ DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_injury_beneficiaries_player
+                ON injury_beneficiaries(player_id, scenario_name);
+            CREATE INDEX IF NOT EXISTS idx_injury_beneficiaries_beneficiary
+                ON injury_beneficiaries(beneficiary_player_id, rank_score);
+            """,
+        ),
+        (
+            8,
+            "ownership_scenarios table",
+            """
+            CREATE TABLE IF NOT EXISTS ownership_scenarios (
+                ownership_scenario_id    VARCHAR PRIMARY KEY,
+                player_id                VARCHAR NOT NULL,
+                site                     VARCHAR(8) NOT NULL,
+                scenario_name            VARCHAR(32) NOT NULL,
+                ownership_pct            DOUBLE DEFAULT 0.0,
+                weighted_ownership_pct   DOUBLE DEFAULT 0.0,
+                reaction_lag_minutes     DOUBLE DEFAULT 0.0,
+                generated_at             TIMESTAMPTZ DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_ownership_scenarios_player
+                ON ownership_scenarios(player_id, site, scenario_name);
+            """,
+        ),
+        (
+            9,
+            "swap_option_metrics table",
+            """
+            CREATE TABLE IF NOT EXISTS swap_option_metrics (
+                swap_metric_id           VARCHAR PRIMARY KEY,
+                slate_id                 VARCHAR(80),
+                site                     VARCHAR(8) NOT NULL,
+                player_id                VARCHAR NOT NULL,
+                swap_option_value        DOUBLE DEFAULT 0.0,
+                valid_pivots_remaining   INTEGER DEFAULT 0,
+                pivot_quality            DOUBLE DEFAULT 0.0,
+                ownership_leverage       DOUBLE DEFAULT 0.0,
+                time_remaining_weight    DOUBLE DEFAULT 0.0,
+                updated_at               TIMESTAMPTZ DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_swap_option_metrics_player
+                ON swap_option_metrics(slate_id, site, player_id);
+            """,
+        ),
+        (
+            10,
+            "add reason_codes and position to injury_beneficiaries; add position to player_injury_state; add position to injury_events",
+            """
+            ALTER TABLE injury_beneficiaries
+                ADD COLUMN IF NOT EXISTS position        VARCHAR(12) DEFAULT '';
+            ALTER TABLE injury_beneficiaries
+                ADD COLUMN IF NOT EXISTS reason_codes    JSON DEFAULT '[]';
+            ALTER TABLE player_injury_state
+                ADD COLUMN IF NOT EXISTS position        VARCHAR(12) DEFAULT '';
+            ALTER TABLE injury_events
+                ADD COLUMN IF NOT EXISTS position        VARCHAR(12) DEFAULT '';
+            """,
+        ),
+        (
+            11,
+            "user_injury_overrides table",
+            """
+            CREATE TABLE IF NOT EXISTS user_injury_overrides (
+                override_id              VARCHAR PRIMARY KEY,
+                user_id                  VARCHAR NOT NULL,
+                slate_id                 VARCHAR(80),
+                player_id                VARCHAR NOT NULL,
+                player_name              VARCHAR(100),
+                action                   VARCHAR(16) NOT NULL,
+                projection_bump          DOUBLE DEFAULT 0.0,
+                ownership_adjustment     DOUBLE DEFAULT 0.0,
+                exclude_from_pool        BOOLEAN DEFAULT FALSE,
+                notes                    TEXT DEFAULT '',
+                created_at               TIMESTAMPTZ DEFAULT now(),
+                updated_at               TIMESTAMPTZ DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_injury_overrides_user_slate
+                ON user_injury_overrides(user_id, slate_id);
+            CREATE INDEX IF NOT EXISTS idx_user_injury_overrides_player
+                ON user_injury_overrides(player_id);
+            """,
+        ),
     ],
 }
 

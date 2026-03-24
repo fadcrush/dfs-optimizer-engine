@@ -280,6 +280,7 @@ class TestEngineVarianceModel:
         with (
             patch("analysis.core.projection_engine._load_game_log_baseline", return_value={}),
             patch("analysis.core.projection_engine._load_stddev_baseline", return_value=mock_stddev),
+            patch("analysis.core.projection_engine._load_minutes_trend", return_value={}),
             patch("analysis.core.projection_engine.load_dvp_table", return_value={}),
             patch("analysis.core.projection_engine.get_rest_multipliers", return_value={}),
             patch("analysis.core.projection_engine.get_blowout_multipliers", return_value={}),

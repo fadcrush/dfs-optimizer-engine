@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -130,4 +131,110 @@ def test_api_upload_generate_download_flow(tmp_path: Path, monkeypatch, isolated
     download_response = client.get(f"/api/projections/download/{download_name}")
     assert download_response.status_code == 200
     assert "text/csv" in download_response.headers.get("content-type", "")
+
+
+def test_projection_response_includes_enrichment_fields():
+    """generate_projections must always return the four stat-enrichment keys.
+
+    When DFS_ENABLE_STAT_ENRICHMENT is off (the default in tests) the values
+    are None.  When it is on they are floats or None per-player.
+    """
+    import asyncio
+    from unittest.mock import patch
+    import pandas as pd
+
+    # Minimal pipeline result — mimics what run_dfs_pipeline returns.
+    fake_projections = pd.DataFrame([
+        {
+            "DFS_ID": "1", "Name": "Player A", "Pos": "PG", "Team": "AAA", "Opp": "BBB",
+            "Salary": 8000, "Proj": 40.0, "Floor": 28.0, "Ceiling": 55.0,
+            "Value": 5.0, "Own": 18.0,
+            # Enrichment columns present (as if DFS_ENABLE_STAT_ENRICHMENT=1):
+            "projected_minutes": 32.5,
+            "minutes_confidence": 0.85,
+            "est_dk_pts": 41.2,
+            "stat_confidence": 0.78,
+        },
+        {
+            "DFS_ID": "2", "Name": "Player B", "Pos": "SG", "Team": "CCC", "Opp": "DDD",
+            "Salary": 6500, "Proj": 30.0, "Floor": 20.0, "Ceiling": 42.0,
+            "Value": 4.6, "Own": 10.0,
+            # No enrichment data for this player:
+            "projected_minutes": float("nan"),
+            "minutes_confidence": 0.0,
+            "est_dk_pts": float("nan"),
+            "stat_confidence": 0.0,
+        },
+    ])
+
+    fake_pipeline_result = {"projections_df": fake_projections, "lineups": [], "optimizer_meta": {}}
+
+    import os
+    os.environ.setdefault("DATABASE_URL", "sqlite:///./test_dfs.db")
+
+    with patch("services.projection_service.run_dfs_pipeline", return_value=fake_pipeline_result), \
+         patch("services.projection_service.log_projections"):
+        result = asyncio.run(
+            generate_projections("/fake/slate.csv", user_id="test", site="DK", sport="NBA")
+        )
+
+    assert result["success"] is True
+    projections = result["projections"]
+    assert len(projections) == 2
+
+    # All four enrichment keys must be present on every record.
+    for rec in projections:
+        assert "min_proj" in rec
+        assert "minutes_confidence" in rec
+        assert "stat_proj_pts" in rec
+        assert "stat_confidence" in rec
+
+    # Player A: enriched — values should be floats, not None.
+    enriched = next(p for p in projections if p["name"] == "Player A")
+    assert enriched["min_proj"] == pytest.approx(32.5, abs=0.01)
+    assert enriched["minutes_confidence"] == pytest.approx(0.85, abs=0.001)
+    assert enriched["stat_proj_pts"] == pytest.approx(41.2, abs=0.01)
+    assert enriched["stat_confidence"] == pytest.approx(0.78, abs=0.001)
+
+    # Player B: NaN / 0.0 stat values → None / 0.0 (NaN becomes None, 0.0 stays).
+    sparse = next(p for p in projections if p["name"] == "Player B")
+    assert sparse["min_proj"] is None
+    assert sparse["stat_proj_pts"] is None
+    # minutes_confidence / stat_confidence are 0.0 (not NaN) — should be float.
+    assert sparse["minutes_confidence"] == pytest.approx(0.0, abs=0.001)
+    assert sparse["stat_confidence"] == pytest.approx(0.0, abs=0.001)
+
+
+def test_projection_response_enrichment_fields_absent_when_no_enrichment_columns():
+    """When the pipeline produces no enrichment columns, all four fields are None."""
+    import asyncio
+    from unittest.mock import patch
+    import pandas as pd
+
+    fake_projections = pd.DataFrame([
+        {
+            "DFS_ID": "1", "Name": "Player A", "Pos": "PG", "Team": "AAA", "Opp": "BBB",
+            "Salary": 8000, "Proj": 40.0, "Floor": 28.0, "Ceiling": 55.0,
+            "Value": 5.0, "Own": 18.0,
+            # No enrichment columns at all.
+        },
+    ])
+
+    fake_pipeline_result = {"projections_df": fake_projections, "lineups": [], "optimizer_meta": {}}
+
+    import os
+    os.environ.setdefault("DATABASE_URL", "sqlite:///./test_dfs.db")
+
+    with patch("services.projection_service.run_dfs_pipeline", return_value=fake_pipeline_result), \
+         patch("services.projection_service.log_projections"):
+        result = asyncio.run(
+            generate_projections("/fake/slate.csv", user_id="test", site="DK", sport="NBA")
+        )
+
+    assert result["success"] is True
+    rec = result["projections"][0]
+    assert rec["min_proj"] is None
+    assert rec["minutes_confidence"] is None
+    assert rec["stat_proj_pts"] is None
+    assert rec["stat_confidence"] is None
 

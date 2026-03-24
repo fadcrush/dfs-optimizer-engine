@@ -194,10 +194,19 @@ def _build_matchups_from_slate() -> list[dict]:
     """Generate mock matchups seeded with teams from the latest uploaded slate."""
     try:
         slates_dir = Path(__file__).parent.parent / "uploads" / "slates"
-        index_file = slates_dir / "index.json"
-        if not index_file.exists():
-            return []
-        slates = json.loads(index_file.read_text(encoding="utf-8"))
+        # Slates are stored per-user under uploads/slates/{user_id}/index.json
+        all_slates: list[dict] = []
+        if slates_dir.exists():
+            for user_dir in slates_dir.iterdir():
+                index_file = user_dir / "index.json"
+                if index_file.is_file():
+                    try:
+                        all_slates.extend(
+                            json.loads(index_file.read_text(encoding="utf-8"))
+                        )
+                    except Exception:
+                        pass
+        slates = all_slates
         if not slates:
             return []
         latest = sorted(slates, key=lambda s: s.get("created_at", ""), reverse=True)[0]

@@ -66,8 +66,13 @@ def job_refresh_injuries() -> None:
     try:
         log.info("[scheduler] job_refresh_injuries starting")
         from scripts.jobs.fetch_nba_injuries import ensure_current, DB_PATH  # type: ignore[import]
+        from analysis.shared.injury_utils import invalidate_cache, load_injury_status
+        from analysis.core.injury_intelligence import sync_injury_intelligence
         result = ensure_current(db_path=DB_PATH)
+        invalidate_cache()
+        sync_summary = sync_injury_intelligence(load_injury_status(force=True), source="official_report")
         log.info("[scheduler] Injury refresh result: %s", result)
+        log.info("[scheduler] Injury intelligence sync: %s", sync_summary)
     except Exception as exc:
         log.error("[scheduler] job_refresh_injuries failed: %s", exc)
     finally:
@@ -231,6 +236,9 @@ def job_reconcile_projections() -> None:
                 log.info("[scheduler] No unreconciled projections for %s/%s", yesterday, site)
         except Exception as exc:
             log.warning("[scheduler] reconcile_projections failed for %s/%s: %s", yesterday, site, exc)
+
+
+def _upload_backup_to_cloud(local_path: Path) -> None:
     """Upload a DuckDB backup to S3-compatible cloud storage.
 
     Environment variables (all optional; cloud upload is disabled by default):

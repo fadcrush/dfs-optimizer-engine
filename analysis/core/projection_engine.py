@@ -15,6 +15,7 @@ from analysis.nba.b2b import (
     get_blowout_multipliers,
     get_game_total_multipliers,
     get_injury_boost_multipliers,
+    get_scenario_weighted_injury_multipliers,
 )
 from analysis.nba.ownership_v2 import predict_ownership
 from analysis.shared.db import get_conn
@@ -82,13 +83,43 @@ def _load_game_log_baseline(
 
     try:
         con = get_conn(db_path)
+        # Recompute fantasy scores from raw stat columns using canonical formulas
+        # so stale or missing stored dk_pts/fd_pts never corrupt the baseline.
+        # DraftKings: PTS*1 + 3PM*0.5 + REB*1.25 + AST*1.5 + STL*2 + BLK*2 + TOV*-0.5
+        #   + DD bonus (+1.5) / TD bonus (+3.0) — approximated here without bonus
+        #   because we only have averages not per-game rows.  The bonus is captured
+        #   by the stored dk_pts as a fallback when it differs from the recomputed value.
+        # FanDuel: FGM*2 + FTM*1 + 3PM*1 + REB*1.2 + AST*1.5 + STL*3 + BLK*3 + TOV*-1
+        #
+        # Strategy: use COALESCE(stored, recomputed) so correct stored values are
+        # preferred (they include DD/TD bonuses), but NULL/zero stored values fall
+        # back to the canonical recomputation from raw stats.
         sql = f"""
             WITH ranked AS (
                 SELECT
                     player_name,
-                    dk_pts,
-                    fd_pts,
                     minutes,
+                    COALESCE(
+                        NULLIF(dk_pts, 0),
+                        COALESCE(points,0)*1.0
+                        + COALESCE(three_pointers,0)*0.5
+                        + COALESCE(rebounds,0)*1.25
+                        + COALESCE(assists,0)*1.5
+                        + COALESCE(steals,0)*2.0
+                        + COALESCE(blocks,0)*2.0
+                        + COALESCE(turnovers,0)*(-0.5)
+                    ) AS dk_pts_canon,
+                    COALESCE(
+                        NULLIF(fd_pts, 0),
+                        COALESCE(fg_made,0)*2.0
+                        + COALESCE(ft_made,0)*1.0
+                        + COALESCE(three_pointers,0)*1.0
+                        + COALESCE(rebounds,0)*1.2
+                        + COALESCE(assists,0)*1.5
+                        + COALESCE(steals,0)*3.0
+                        + COALESCE(blocks,0)*3.0
+                        + COALESCE(turnovers,0)*(-1.0)
+                    ) AS fd_pts_canon,
                     ROW_NUMBER() OVER (
                         PARTITION BY player_name
                         ORDER BY game_date DESC
@@ -98,10 +129,10 @@ def _load_game_log_baseline(
             )
             SELECT
                 player_name,
-                ROUND(AVG(dk_pts), 3)  AS avg_dk,
-                ROUND(AVG(fd_pts), 3)  AS avg_fd,
-                ROUND(AVG(minutes), 2) AS avg_min,
-                COUNT(*)               AS games
+                ROUND(AVG(dk_pts_canon), 3) AS avg_dk,
+                ROUND(AVG(fd_pts_canon), 3) AS avg_fd,
+                ROUND(AVG(minutes), 2)      AS avg_min,
+                COUNT(*)                    AS games
             FROM ranked
             WHERE rn <= {lookback_games}
             GROUP BY player_name
@@ -155,7 +186,24 @@ def _load_stddev_baseline(
     if not db_path.exists():
         return {}
 
-    pts_col = "dk_pts" if site.upper() == "DK" else "fd_pts"
+    # Build canonical recompute expressions for each site — used as fallback
+    # when stored dk_pts/fd_pts is NULL or zero (stale ingestion).
+    if site.upper() == "DK":
+        _recompute = (
+            "COALESCE(points,0)*1.0 + COALESCE(three_pointers,0)*0.5"
+            " + COALESCE(rebounds,0)*1.25 + COALESCE(assists,0)*1.5"
+            " + COALESCE(steals,0)*2.0 + COALESCE(blocks,0)*2.0"
+            " + COALESCE(turnovers,0)*(-0.5)"
+        )
+        _stored = "dk_pts"
+    else:
+        _recompute = (
+            "COALESCE(fg_made,0)*2.0 + COALESCE(ft_made,0)*1.0"
+            " + COALESCE(three_pointers,0)*1.0 + COALESCE(rebounds,0)*1.2"
+            " + COALESCE(assists,0)*1.5 + COALESCE(steals,0)*3.0"
+            " + COALESCE(blocks,0)*3.0 + COALESCE(turnovers,0)*(-1.0)"
+        )
+        _stored = "fd_pts"
 
     try:
         con = get_conn(db_path)
@@ -163,7 +211,7 @@ def _load_stddev_baseline(
             WITH ranked AS (
                 SELECT
                     player_name,
-                    {pts_col} AS pts,
+                    COALESCE(NULLIF({_stored}, 0), {_recompute}) AS pts,
                     ROW_NUMBER() OVER (
                         PARTITION BY player_name
                         ORDER BY game_date DESC
@@ -338,6 +386,17 @@ class CanonicalNBAProjectionEngine:
         df = slate_df.copy()
         has_base = "Base_Proj" in df.columns
         has_box = {"PTS", "TRB", "AST", "STL", "BLK", "TOV"}.issubset(set(df.columns))
+
+        # Pre-load injury state once — shared by Layer 9 (scenario-weighted boost) and
+        # ownership estimation (p_play suppression).  Fails gracefully to None.
+        _injury_states_df: pd.DataFrame | None = None
+        try:
+            from analysis.core.injury_intelligence import InjuryIntelligenceService  # noqa: PLC0415
+            _injury_states_df = InjuryIntelligenceService().load_player_states_df()
+            if _injury_states_df is not None and _injury_states_df.empty:
+                _injury_states_df = None
+        except Exception:
+            pass
 
         # Load game-log baseline once (fails gracefully to empty dict)
         gl_baseline = _load_game_log_baseline(
@@ -538,24 +597,38 @@ class CanonicalNBAProjectionEngine:
             df["GameTotal"] = 1.0
 
         # ── Layer 9: Injury usage-boost adjustment ─────────────────────────────────
-        # When a key teammate is OUT/SSPD, remaining active players on the same
-        # team (especially at the same position) receive a usage boost.
-        # Operates entirely on the slate DataFrame — no DB or API calls required.
+        # Prefer probabilistic scenario-weighted multipliers from injury_intelligence.
+        # Falls back to binary OUT/SSPD static boosts when no state data is available.
         name_col_inj = next((c for c in ["Name", "name"] if c in df.columns), None)
         if self.injury_boost_enabled and name_col_inj and team_col and pos_col_dvp:
-            inj_mults = get_injury_boost_multipliers(
+            # Pass pre-loaded states so we avoid a second DB read
+            inj_mults = get_scenario_weighted_injury_multipliers(
                 df,
+                states_df=_injury_states_df,
                 team_col=team_col,
                 pos_col=pos_col_dvp,
                 name_col=name_col_inj,
             )
+            source = "scenario-weighted"
+            if not inj_mults:
+                # Fall back to static binary boost
+                inj_mults = get_injury_boost_multipliers(
+                    df,
+                    team_col=team_col,
+                    pos_col=pos_col_dvp,
+                    name_col=name_col_inj,
+                )
+                source = "static"
             if inj_mults:
                 name_key_series = df[name_col_inj].map(lambda n: str(n).strip().upper())
                 inj_series = name_key_series.map(lambda k: inj_mults.get(k, 1.0))
                 df["InjuryBoost"] = inj_series.round(5)
                 df["Proj"] = (df["Proj"] * inj_series).round(4)
                 n_inj = int((inj_series != 1.0).sum())
-                log.info("Injury boost applied to %d/%d players", n_inj, len(df))
+                log.info(
+                    "Injury boost applied to %d/%d players (%s)",
+                    n_inj, len(df), source,
+                )
             else:
                 df["InjuryBoost"] = 1.0
         else:
@@ -622,6 +695,7 @@ class CanonicalNBAProjectionEngine:
                     sport="NBA",
                     site=context.site,
                     contest_type=self.contest_type,
+                    states_df=_injury_states_df,
                 )
             except Exception as exc:
                 log.warning("Ownership prediction failed: %s", exc)

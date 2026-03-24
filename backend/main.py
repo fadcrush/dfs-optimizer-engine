@@ -9,8 +9,10 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-# Add parent directory to path
+# Add backend and project root to path
+backend_dir = str(Path(__file__).parent)
 parent_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, backend_dir)
 sys.path.insert(0, parent_dir)
 
 from fastapi import FastAPI, Request
@@ -44,10 +46,22 @@ from routers import auth, projections, optimizer, slates, analytics, games, cont
 from routers import admin as admin_router
 from routers.pipeline import router as pipeline_router
 from routers import tasks as tasks_router
+from routers import player_trends as player_trends_router
+from routers import health as health_router
 
 def _run_startup_tasks() -> None:
     """Initialize external services and local storage on API startup."""
     log.info("DFS Edge Pro API starting up")
+
+    # Log presence of load-bearing API keys so silent failures are visible immediately.
+    _odds_key = os.getenv("THE_ODDS_API_KEY", "")
+    if _odds_key:
+        log.info("THE_ODDS_API_KEY loaded [OK] (len=%d) - Vegas enrichment active", len(_odds_key))
+    else:
+        log.warning(
+            "THE_ODDS_API_KEY not set -- Vegas enrichment will be skipped on every pipeline run. "
+            "Add THE_ODDS_API_KEY to your .env file (see .env.example)."
+        )
 
     if test_connection():
         init_db()
@@ -97,7 +111,11 @@ def _run_shutdown_tasks() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _run_startup_tasks()
+    import asyncio
+    # Run blocking startup tasks in a thread so the event loop stays
+    # responsive while DuckDB connections and the scheduler initialise.
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _run_startup_tasks)
     try:
         yield
     finally:
@@ -158,6 +176,8 @@ app.include_router(billing.router)
 app.include_router(pipeline_router)
 app.include_router(admin_router.router)
 app.include_router(tasks_router.router)
+app.include_router(player_trends_router.router)
+app.include_router(health_router.router)
 
 @app.get("/")
 async def root():

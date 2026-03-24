@@ -14,11 +14,30 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 import pandas as pd
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Health state — updated by every enrich_with_vegas() call.
+# Readable by GET /api/health/vegas without re-running enrichment.
+# ---------------------------------------------------------------------------
+_vegas_health: dict = {
+    "api_key_loaded": False,
+    "last_successful_enrichment_at": None,   # ISO-8601 UTC string
+    "games_enriched_on_last_run": 0,
+    "players_enriched_on_last_run": 0,
+    "last_error": None,
+}
+
+
+def get_vegas_health() -> dict:
+    """Return a copy of the current Vegas enrichment health state."""
+    key = os.getenv("THE_ODDS_API_KEY", "")
+    return {**_vegas_health, "api_key_loaded": bool(key)}
 
 # ------------------------------------------------------------------
 # NBA team name → 3-letter abbreviation mapping
@@ -116,11 +135,11 @@ def _parse_game_totals(games: list[dict], sport: str) -> dict[str, dict]:
     return out
 
 
-def _fetch_team_totals(sport: str) -> dict[str, dict]:
-    """Fetch from TheOddsAPI. Returns {} on any failure."""
+def _fetch_team_totals(sport: str) -> tuple[dict[str, dict], int]:
+    """Fetch from TheOddsAPI.  Returns (team_totals_dict, raw_game_count) on success, ({}, 0) on failure."""
     client = _get_odds_client()
     if client is None:
-        return {}
+        return {}, 0
 
     try:
         if sport.upper() == "NBA":
@@ -129,14 +148,15 @@ def _fetch_team_totals(sport: str) -> dict[str, dict]:
             games = getattr(client, "get_nfl_odds", lambda: [])()
         else:
             log.info("Vegas enrichment not supported for sport: %s", sport)
-            return {}
+            return {}, 0
 
         parsed = _parse_game_totals(games, sport)
-        log.info("Vegas enrichment: fetched totals for %d teams", len(parsed))
-        return parsed
+        log.info("Vegas enrichment: fetched totals for %d teams (%d games)", len(parsed), len(games))
+        return parsed, len(games)
     except Exception as exc:
+        _vegas_health["last_error"] = str(exc)
         log.warning("Vegas enrichment failed: %s", exc)
-        return {}
+        return {}, 0
 
 
 def enrich_with_vegas(df: pd.DataFrame, sport: str = "NBA") -> pd.DataFrame:
@@ -170,10 +190,11 @@ def enrich_with_vegas(df: pd.DataFrame, sport: str = "NBA") -> pd.DataFrame:
 
     team_col = next((c for c in ["Team", "team", "TEAM"] if c in df.columns), None)
     if team_col is None:
+        _vegas_health["last_error"] = "No Team column found in slate DataFrame"
         log.warning("No Team column found — Vegas enrichment columns set to NaN")
         return df
 
-    totals = _fetch_team_totals(sport)
+    totals, game_count = _fetch_team_totals(sport)
     if not totals:
         log.info("No Vegas data available — columns remain NaN")
         return df
@@ -192,7 +213,14 @@ def enrich_with_vegas(df: pd.DataFrame, sport: str = "NBA") -> pd.DataFrame:
         boost = 1.0 + 0.008 * (tt - league_avg)
         df.at[idx, "Vegas_Boost"] = round(boost, 4)
 
-    enriched = df["team_total"].notna().sum()
+    enriched = int(df["team_total"].notna().sum())
     total = len(df)
     log.info("Vegas enrichment applied to %d / %d players", enriched, total)
+
+    # Update health state on success
+    _vegas_health["last_successful_enrichment_at"] = datetime.now(timezone.utc).isoformat()
+    _vegas_health["games_enriched_on_last_run"] = game_count
+    _vegas_health["players_enriched_on_last_run"] = enriched
+    _vegas_health["last_error"] = None
+
     return df

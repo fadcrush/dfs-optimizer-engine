@@ -160,6 +160,21 @@ def run_dfs_pipeline(
         except Exception as exc:
             log.warning("Projection cache write failed: %s", exc)
 
+    # ── Stat/minutes enrichment (optional): per-minute DFS-rate projection ──
+    import os as _os_enrich
+    if (
+        _os_enrich.getenv("DFS_ENABLE_STAT_ENRICHMENT", "0") == "1"
+        and context.sport.upper() == "NBA"
+    ):
+        try:
+            from analysis.nba.stat_projection_breakdown import enrich_with_stat_breakdown
+            projections_df = enrich_with_stat_breakdown(
+                projections_df, site=resolved_site
+            )
+            log.info("Stat/minutes enrichment applied")
+        except Exception as exc:
+            log.warning("Stat enrichment skipped: %s", exc)
+
     # ── Pre-sim (optional volatility context before pool selection) ──────────
     if pre_sim:
         pre_config = SimulationConfig(
@@ -220,16 +235,142 @@ def run_dfs_pipeline(
         except Exception as exc:
             log.warning("Props enrichment skipped: %s", exc)
 
-    # ── Ownership model v2: calibrated ownership estimates ──────────────────
+    # ── Ownership model: mode-controlled cascade ────────────────────────────
+    # DFS_OWNERSHIP_MODE = "auto" (default) | "ml" | "weighted" | "simple"
+    #   auto     → try ML → fallback weighted → fallback simple
+    #   ml       → ML only (no fallback)
+    #   weighted → deterministic weighted model only
+    #   simple   → rank-based simple model only
+    ownership_model_used: str = "none"
     if context.sport.upper() == "NBA":
-        try:
-            from analysis.nba.ownership_v2 import predict_ownership
-            projections_df = predict_ownership(
-                projections_df, sport=context.sport, site=resolved_site
-            )
-            log.info("Ownership v2 predictions applied")
-        except Exception as exc:
-            log.warning("Ownership v2 skipped: %s", exc)
+        import os as _os
+        _ownership_mode = _os.environ.get("DFS_OWNERSHIP_MODE", "auto").strip().lower()
+
+        def _apply_ml_ownership() -> bool:
+            nonlocal projections_df, ownership_model_used
+            try:
+                from analysis.nba.ownership_v2 import predict_ownership as _predict_v2
+                projections_df = _predict_v2(
+                    projections_df, sport=context.sport, site=resolved_site
+                )
+                ownership_model_used = "ml"
+                log.info("Ownership v2 (ML) predictions applied")
+                return True
+            except Exception as exc:
+                log.warning("Ownership v2 skipped: %s", exc)
+                return False
+
+        def _apply_weighted_ownership() -> bool:
+            nonlocal projections_df, ownership_model_used
+            try:
+                from analysis.nba.ownership_weighted import estimate_ownership_weighted
+                projections_df = estimate_ownership_weighted(projections_df, site=resolved_site)
+                ownership_model_used = "weighted"
+                log.info("Ownership weighted model applied")
+                return True
+            except Exception as exc:
+                log.warning("Ownership weighted skipped: %s", exc)
+                return False
+
+        def _apply_simple_ownership() -> bool:
+            nonlocal projections_df, ownership_model_used
+            try:
+                from analysis.nba.ownership import estimate_ownership as _estimate_simple
+                projections_df = _estimate_simple(projections_df)
+                ownership_model_used = "simple"
+                log.info("Ownership simple (rank-based) model applied")
+                return True
+            except Exception as exc:
+                log.warning("Ownership simple skipped: %s", exc)
+                return False
+
+        if _ownership_mode == "ml":
+            _apply_ml_ownership()
+        elif _ownership_mode == "weighted":
+            _apply_weighted_ownership()
+        elif _ownership_mode == "simple":
+            _apply_simple_ownership()
+        else:  # "auto"
+            _apply_ml_ownership() or _apply_weighted_ownership() or _apply_simple_ownership()
+
+    # ── Value column: Proj / (Salary / 1000) — visible in optimizer UI ─────
+    if "Proj" in projections_df.columns and "Salary" in projections_df.columns:
+        import pandas as _pd_val
+        _sal = _pd_val.to_numeric(projections_df["Salary"], errors="coerce").fillna(1)
+        _proj = _pd_val.to_numeric(projections_df["Proj"], errors="coerce").fillna(0)
+        projections_df["Value"] = (_proj / (_sal / 1000.0)).round(2)
+
+    # ── Data quality flags + projection confidence ───────────────────────────
+    # Each player gets a list of string flags explaining what signals were or
+    # were not available when the projection was built.  A numeric confidence
+    # score (0.0–1.0) is also computed so the UI can render a summary indicator.
+    _api_key_present = bool(__import__("os").getenv("THE_ODDS_API_KEY", ""))
+    _vegas_col_ok = (
+        "team_total" in projections_df.columns
+        and projections_df["team_total"].notna().any()
+    )
+
+    _flag_rows: list[list[str]] = []
+    _conf_rows: list[float] = []
+
+    for _, _row in projections_df.iterrows():
+        flags: list[str] = []
+
+        # Vegas
+        _tt = _row.get("team_total")
+        import math as _math
+        _tt_valid = _tt is not None and not (isinstance(_tt, float) and _math.isnan(_tt))
+        if _tt_valid:
+            flags.append("vegas_applied")
+        elif _api_key_present:
+            flags.append("vegas_fallback")   # key present but team not matched
+
+        # Ownership
+        _own_src = str(_row.get("own_source", ""))
+        if _own_src == "model":
+            flags.append("ownership_trained")
+        elif _own_src in ("fallback", "weighted", "simple"):
+            flags.append("ownership_fallback")
+
+        # Injury adjustment
+        _inj = str(_row.get("InjuryStatus", "")).upper()
+        if _inj and _inj not in ("", "A", "ACTIVE"):
+            flags.append("injury_adjusted")
+        _rb = _row.get("replacement_boost", 0) or _row.get("has_replacement_boost", 0)
+        if _rb and float(_rb) > 0:
+            flags.append("injury_adjusted")
+
+        # Low sample / minutes confidence
+        _games = _row.get("games_played") or _row.get("log_games") or 0
+        if _games and int(_games) < 5:
+            flags.append("low_minutes_sample")
+
+        # Stat confidence (from stat_projection_breakdown)
+        _stat_conf = _row.get("stat_confidence") or _row.get("StatConfidence")
+        if _stat_conf is not None:
+            try:
+                if float(_stat_conf) < 0.5:
+                    flags.append("limited_confidence")
+            except (TypeError, ValueError):
+                pass
+
+        _flag_rows.append(flags)
+
+        # Confidence score: start at 1.0, penalise each missing signal
+        _conf = 1.0
+        if "vegas_fallback" in flags:
+            _conf -= 0.20
+        if "ownership_fallback" in flags:
+            _conf -= 0.10
+        if "low_minutes_sample" in flags:
+            _conf -= 0.20
+        if "limited_confidence" in flags:
+            _conf -= 0.15
+        _conf_rows.append(round(max(0.0, min(1.0, _conf)), 2))
+
+    projections_df = projections_df.copy()
+    projections_df["data_quality_flags"] = _flag_rows
+    projections_df["projection_confidence"] = _conf_rows
 
     # ── Apply inline projection overrides from context ───────────────────────
     if context.projection_overrides:
@@ -251,6 +392,7 @@ def run_dfs_pipeline(
         "projections_df": projections_df,
         "lineups_df": pd.DataFrame(),
         "filter_report": filter_report,
+        "ownership_model_used": ownership_model_used,
         # Convenience top-level keys for API/notebook consumers
         "removed_players": filter_report.get("removed_players", []),
         "removed_injury_detail": filter_report.get("removed_injury_detail", []),
@@ -299,7 +441,23 @@ def run_dfs_pipeline(
                 projections_df, n_lineups, eff_exp_cfg
             )
 
-            # ── Build stacking rule from context ──────────────────────────────
+            # ── Apply contest-type constraints (GPP vs Cash pool filtering) ──
+            _ct = (contest_cfg.contest_type if contest_cfg else "gpp").lower()
+            try:
+                from analysis.nba.optimizer_constraints import apply_contest_constraints
+                _opt_pool, _contest_stack_rule = apply_contest_constraints(
+                    projections_df, contest_type=_ct, site=resolved_site
+                )
+                log.info(
+                    "Contest constraints (%s) applied: %d → %d players in pool",
+                    _ct, len(projections_df), len(_opt_pool),
+                )
+            except Exception as _cc_exc:
+                log.warning("Contest constraints skipped: %s", _cc_exc)
+                _opt_pool = projections_df
+                _contest_stack_rule = None
+
+            # ── Build stacking rule from context (overrides contest default) ──
             stack_rule = None
             if context.enable_stacking:
                 from analysis.nba.optimizer import StackRule
@@ -310,13 +468,17 @@ def run_dfs_pipeline(
                     max_from_same_game=context.max_from_game,
                 )
                 log.info(
-                    "Stacking enabled — min_game_stack=%d, bring_back=%d, max_team=%d, max_game=%d",
+                    "Context stacking override — min_game_stack=%d, bring_back=%d, max_team=%d, max_game=%d",
                     context.min_game_stack, context.bring_back_count,
                     context.max_from_team, context.max_from_game,
                 )
+            elif _contest_stack_rule is not None:
+                # Use the contest-derived stack rule when context has stacking disabled
+                stack_rule = _contest_stack_rule
+                log.info("Using contest-derived stack rule for %s", _ct)
 
             lineups_df = optimize_portfolio(
-                players=projections_df,
+                players=_opt_pool,
                 site=resolved_site,
                 n_lineups=n_lineups,
                 num_unique=num_unique,

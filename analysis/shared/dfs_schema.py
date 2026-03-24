@@ -3,6 +3,8 @@ import pandas as pd
 import re
 from typing import Any
 
+from analysis.shared.csv_aliases import apply_site_column_aliases, extract_opponent
+
 log = logging.getLogger(__name__)
 
 
@@ -20,6 +22,12 @@ def detect_site_from_lineups(lineups_df: pd.DataFrame) -> str:
     """
     Detect FD vs DK by checking for FD-style IDs: slateId-playerId
     """
+    lowered_cols = {str(col).strip().lower() for col in lineups_df.columns}
+    if "nickname" in lowered_cols or "injury indicator" in lowered_cols:
+        return "FD"
+    if "name" in lowered_cols or "game info" in lowered_cols or {"first name", "last name"}.issubset(lowered_cols):
+        return "DK"
+
     sample = lineups_df.astype(str).head(30).values.ravel()
     for v in sample:
         if isinstance(v, str) and "-" in v:
@@ -154,6 +162,8 @@ def normalize_slate_df(raw_df: pd.DataFrame, site: str | None = None) -> tuple[p
     else:
         resolved_site = detect_site_from_lineups(df)
 
+    df = apply_site_column_aliases(df, resolved_site)
+
     id_col = _resolve_column(df, ["dfs id", "dfs_id", "id", "playerid"])
     first_col = _resolve_column(df, ["first name", "firstname"])
     last_col = _resolve_column(df, ["last name", "lastname"])
@@ -197,7 +207,16 @@ def normalize_slate_df(raw_df: pd.DataFrame, site: str | None = None) -> tuple[p
     out = pd.DataFrame(index=df.index)
     out["Name"] = name_series
     out["Team"] = df[team_col].astype(str).str.strip() if team_col else ""
-    out["Opp"] = df[opp_col].astype(str).str.strip() if opp_col else ""
+    opp_series = df[opp_col].astype(str).str.strip() if opp_col else pd.Series("", index=df.index, dtype=str)
+    game_info_col = _resolve_column(df, ["game info", "game"])
+    if game_info_col and team_col:
+        derived_opp = df.apply(
+            lambda row: extract_opponent(row.get(game_info_col, ""), row.get(team_col, "")),
+            axis=1,
+        )
+        out["Opp"] = opp_series.mask(opp_series.eq(""), derived_opp)
+    else:
+        out["Opp"] = opp_series
     out["Pos"] = df[pos_col].astype(str).str.strip() if pos_col else "UTIL"
     out["Salary"] = _to_float_series(df, salary_col, default=0.0)
     out["Base_Proj"] = _to_float_series(df, proj_col, default=0.0)

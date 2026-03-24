@@ -26,9 +26,11 @@ Blowout risk multipliers
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
+
+import pandas as pd
 
 log = logging.getLogger(__name__)
 
@@ -299,7 +301,7 @@ def get_injury_boost_multipliers(
         cap:             Maximum total boost for any single player.
         out_statuses:    Set of status strings that mark a player as unavailable.
     """
-    import pandas as pd  # noqa: PLC0415
+
     from collections import defaultdict  # noqa: PLC0415
 
     if df is None or df.empty:
@@ -359,5 +361,136 @@ def get_injury_boost_multipliers(
     log.debug(
         "Injury boosts: %d players boosted across %d team(s) with OUT players",
         n_boosted, n_out_teams,
+    )
+    return multipliers
+
+
+# ---------------------------------------------------------------------------
+# Scenario-probability-weighted injury multiplier — uses injury intelligence
+# ---------------------------------------------------------------------------
+
+def get_scenario_weighted_injury_multipliers(
+    df: "pd.DataFrame",
+    states_df: "pd.DataFrame | None" = None,
+    scenarios_df: "pd.DataFrame | None" = None,
+    team_col: str = "Team",
+    pos_col: str = "Pos",
+    name_col: str = "Name",
+    same_pos_boost: float = _INJURY_BOOST_SAME_POS,
+    diff_pos_boost: float = _INJURY_BOOST_DIFF_POS,
+    cap: float = _INJURY_BOOST_CAP,
+) -> dict[str, float]:
+    """Return ``{NAME_KEY: multiplier}`` using probabilistic injury-state data.
+
+    Replaces the binary OUT/SSPD gate with scenario probability-weighted
+    expected usage absorption.  For each active player A, the boost is:
+
+        boost_from_player_B = P(B is OUT) × same_or_diff_pos_boost
+        total_boost = sum over all teammates B ≠ A
+        mult = 1.0 + min(total_boost, cap)
+
+    When ``states_df`` / ``scenarios_df`` are ``None`` the function loads them
+    from ``nba_news.duckdb``.  Returns ``{}`` (triggering static fallback) on
+    any failure so the projection pipeline always has a safe path.
+
+    Args:
+        df:          Full slate DataFrame with Name, Team, Pos columns.
+        states_df:   Rows from ``player_injury_state`` (pre-loaded or None).
+        scenarios_df: Rows from ``injury_scenarios`` (pre-loaded or None).
+        team_col, pos_col, name_col: Column name overrides.
+        same_pos_boost: Base fraction per expected-absent teammate at same pos.
+        diff_pos_boost: Base fraction per expected-absent teammate at diff pos.
+        cap:             Hard cap on total boost per player.
+    """
+    if df is None or df.empty:
+        return {}
+    needed = [team_col, pos_col, name_col]
+    if any(c not in df.columns for c in needed):
+        return {}
+
+    # ── Load probability state data ─────────────────────────────────────
+    try:
+        if states_df is None or scenarios_df is None:
+            import sys
+            from pathlib import Path
+            _root = Path(__file__).resolve().parent.parent.parent
+            if str(_root) not in sys.path:
+                sys.path.insert(0, str(_root))
+            from analysis.shared.db import get_conn  # noqa: PLC0415
+            _db = _root / "data" / "nba_news.duckdb"
+            if not _db.exists():
+                return {}
+            _conn = get_conn(_db, db_key="nba_news")
+            if states_df is None:
+                states_df = _conn.execute(
+                    "SELECT player_id, p_play FROM player_injury_state"
+                ).df()
+            if scenarios_df is None:
+                scenarios_df = _conn.execute(
+                    "SELECT player_id, scenario_name, scenario_probability FROM injury_scenarios"
+                ).df()
+    except Exception as exc:
+        log.debug("Scenario-weighted injury: could not load state data: %s", exc)
+        return {}
+
+    if states_df.empty or scenarios_df.empty:
+        return {}
+
+    # ── Build {player_id_slug → p_out} from OUT scenario probabilities ──
+    def _slug(n: object) -> str:
+        return str(n).strip().upper()
+
+    out_rows = scenarios_df[scenarios_df["scenario_name"] == "OUT"]
+    if out_rows.empty:
+        return {}
+    p_out_map: dict[str, float] = {
+        _slug(row["player_id"]): float(row["scenario_probability"])
+        for _, row in out_rows.iterrows()
+    }
+
+    # ── Build slate records indexed by NAME_KEY ──────────────────────────
+    def _primary_pos(raw: object) -> str:
+        return str(raw).strip().split("/")[0].strip().upper()
+
+    records = []
+    for _, row in df.iterrows():
+        name_key = _slug(row[name_col])
+        # Try to find a player_id slug that matches the name key
+        # Fallback: use name_key itself as the lookup key
+        records.append({
+            "key":  name_key,
+            "team": _slug(row[team_col]),
+            "pos":  _primary_pos(row[pos_col]),
+        })
+
+    # ── For each player look up p_out of teammates ──────────────────────
+    # Group by team
+    from collections import defaultdict  # noqa: PLC0415
+    team_players: dict[str, list[dict]] = defaultdict(list)
+    for rec in records:
+        team_players[rec["team"]].append(rec)
+
+    multipliers: dict[str, float] = {}
+    for team, players in team_players.items():
+        for player in players:
+            total_boost = 0.0
+            for teammate in players:
+                if teammate["key"] == player["key"]:
+                    continue
+                p_out = p_out_map.get(teammate["key"], 0.0)
+                if p_out < 0.05:
+                    continue  # negligible — skip
+                if teammate["pos"] == player["pos"]:
+                    total_boost += p_out * same_pos_boost
+                else:
+                    total_boost += p_out * diff_pos_boost
+            capped = min(total_boost, cap)
+            if capped > 0.0:
+                multipliers[player["key"]] = round(1.0 + capped, 5)
+
+    n_boosted = len(multipliers)
+    log.debug(
+        "Scenario-weighted injury boosts: %d players boosted (probabilistic)",
+        n_boosted,
     )
     return multipliers

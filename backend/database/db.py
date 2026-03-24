@@ -4,14 +4,17 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from contextlib import contextmanager
 import logging
 
 log = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
+# Always load from the repo root .env — regardless of where the process was launched.
+# main.py does this too; calling load_dotenv twice is idempotent (already-set vars are skipped).
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+load_dotenv(dotenv_path=_REPO_ROOT / ".env", override=False)
 
 # Get database URL — may be absent in local dev without Postgres
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -22,12 +25,21 @@ engine = None
 SessionLocal = None
 
 if DATABASE_URL:
-    engine = create_engine(
-        DATABASE_URL,
-        poolclass=NullPool,
-        echo=False,
-    )
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    try:
+        engine = create_engine(
+            DATABASE_URL,
+            poolclass=NullPool,
+            echo=False,
+            connect_args={"connect_timeout": 5},
+        )
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    except Exception as _engine_err:
+        log.warning(
+            "DATABASE_URL is set but the database driver is unavailable (%s). "
+            "Install psycopg2-binary (pip install psycopg2-binary) to enable "
+            "PostgreSQL-backed routes.",
+            _engine_err,
+        )
 else:
     log.warning(
         "DATABASE_URL not set — database-backed routes will be unavailable. "

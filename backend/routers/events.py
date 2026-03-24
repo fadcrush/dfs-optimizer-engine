@@ -46,7 +46,13 @@ async def _injury_event_generator() -> AsyncGenerator[str, None]:
 
 
 def _build_injury_payload() -> dict:
-    """Read current injury data from nba_news.duckdb and return serialisable dict."""
+    """Read current injury state from nba_news.duckdb and return serialisable dict.
+
+    Prefers the probabilistic ``player_injury_state`` + ``injury_scenarios``
+    tables produced by the injury-intelligence service.  Falls back to the raw
+    ``vw_nba_injury_status`` / ``nba_injury_report`` snapshot on any error so
+    the SSE stream continues to function during a data gap.
+    """
     try:
         import sys
         from pathlib import Path
@@ -60,7 +66,69 @@ def _build_injury_payload() -> dict:
             return _empty_payload("nba_news.duckdb not found")
 
         conn = get_conn(db_path, db_key="nba_news")
-        # Try the deduplicated view first; fall back to raw table
+
+        # ── Try probabilistic state (injury-intelligence tables) ────────────
+        try:
+            state_rows = conn.execute(
+                """
+                SELECT s.player_id, s.player_name, s.team_id,
+                       s.current_status, s.p_play, s.p_limited, s.p_late_scratch,
+                       s.expected_minutes_low, s.expected_minutes_mid,
+                       s.expected_minutes_high, s.p_start,
+                       s.confidence_score, s.staleness_score, s.updated_at
+                FROM   player_injury_state s
+                ORDER  BY s.updated_at DESC
+                LIMIT  300
+                """
+            ).fetchall()
+            state_cols = [
+                "player_id", "player_name", "team_id", "current_status",
+                "p_play", "p_limited", "p_late_scratch",
+                "expected_minutes_low", "expected_minutes_mid", "expected_minutes_high",
+                "p_start", "confidence_score", "staleness_score", "updated_at",
+            ]
+            players_map: dict[str, dict] = {}
+            for row in state_rows:
+                rec = dict(zip(state_cols, row))
+                if hasattr(rec.get("updated_at"), "isoformat"):
+                    rec["updated_at"] = rec["updated_at"].isoformat()
+                rec["scenarios"] = []
+                players_map[rec["player_id"]] = rec
+
+            # Attach scenarios
+            if players_map:
+                scenario_rows = conn.execute(
+                    """
+                    SELECT player_id, scenario_name, scenario_probability,
+                           expected_minutes, usage_multiplier, p_start AS scenario_p_start
+                    FROM   injury_scenarios
+                    WHERE  player_id IN (SELECT player_id FROM player_injury_state)
+                    ORDER  BY player_id, scenario_probability DESC
+                    """
+                ).fetchall()
+                scen_cols = [
+                    "player_id", "scenario_name", "scenario_probability",
+                    "expected_minutes", "usage_multiplier", "scenario_p_start",
+                ]
+                for sr in scenario_rows:
+                    s = dict(zip(scen_cols, sr))
+                    pid = s.pop("player_id")
+                    if pid in players_map:
+                        players_map[pid]["scenarios"].append(s)
+
+            players = list(players_map.values())
+            return {
+                "type": "injury_update",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "players": players,
+                "count": len(players),
+                "source": "player_injury_state",
+            }
+
+        except Exception as exc:
+            log.debug("SSE: probabilistic state unavailable (%s) — falling back to snapshot", exc)
+
+        # ── Fallback: raw snapshot view ─────────────────────────────────────
         try:
             rows = conn.execute(
                 """
@@ -82,7 +150,6 @@ def _build_injury_payload() -> dict:
             ).fetchall()
         cols = ["player_name", "status", "detail", "report_date", "team"]
         players = [dict(zip(cols, row)) for row in rows]
-        # Convert date objects to ISO strings
         for p in players:
             if hasattr(p.get("report_date"), "isoformat"):
                 p["report_date"] = p["report_date"].isoformat()
@@ -91,6 +158,7 @@ def _build_injury_payload() -> dict:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "players": players,
             "count": len(players),
+            "source": "snapshot",
         }
     except Exception as exc:
         log.warning("SSE injury payload error: %s", exc)

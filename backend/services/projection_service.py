@@ -59,10 +59,36 @@ async def generate_projections(
             value=projections_df["Value"].astype(float).round(2),
             ownership=projections_df["Own"].astype(float).round(2),
         ).rename(columns={"Name": "name", "Pos": "position", "Team": "team", "Opp": "opponent"})
-        projections = _pf[
-            ["dfs_id", "name", "position", "team", "opponent",
-             "salary", "projection", "floor", "ceiling", "value", "ownership"]
-        ].to_dict("records")
+
+        # ── Stat-enrichment columns (optional — None when stat enrichment is off) ──
+        # projected_minutes   → min_proj
+        # minutes_confidence  → minutes_confidence
+        # est_dk_pts/est_fd_pts (site-selected) → stat_proj_pts
+        # stat_confidence     → stat_confidence
+        _stat_site_col = f"est_{site.lower()}_pts"
+        _enrich_cols: dict[str, str] = {
+            "projected_minutes": "min_proj",
+            "minutes_confidence": "minutes_confidence",
+            _stat_site_col: "stat_proj_pts",
+            "stat_confidence": "stat_confidence",
+        }
+        for _src, _dst in _enrich_cols.items():
+            if _src in projections_df.columns:
+                _pf[_dst] = pd.to_numeric(projections_df[_src], errors="coerce").round(3)
+            else:
+                _pf[_dst] = None
+
+        _base_cols = ["dfs_id", "name", "position", "team", "opponent",
+                      "salary", "projection", "floor", "ceiling", "value", "ownership"]
+        _enrich_out = ["min_proj", "minutes_confidence", "stat_proj_pts", "stat_confidence"]
+        projections = _pf[_base_cols + _enrich_out].to_dict("records")
+
+        # Replace NaN (from to_numeric) with None so JSON serialises cleanly.
+        import math as _math
+        for _row in projections:
+            for _k in _enrich_out:
+                if _row[_k] is not None and isinstance(_row[_k], float) and _math.isnan(_row[_k]):
+                    _row[_k] = None
 
         # Log projections to analytics DB for later accuracy reconciliation.
         # Runs silently — never blocks the response.

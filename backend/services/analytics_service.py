@@ -587,6 +587,9 @@ def synthesize_ownership_from_slate(
         log.error("synthesize_ownership_from_slate write failed: %s", exc)
         return {"error": f"Write failed: {exc}", "seeded": 0}
 
+    # ── Mirror to local DuckDB (model training fallback) ────────────────────
+    _mirror_ownership_to_duckdb(work, game_date, site, slate_id, contest_type)
+
     return {
         "seeded": seeded,
         "note": (
@@ -599,6 +602,92 @@ def synthesize_ownership_from_slate(
             for _, r in work.nlargest(5, "fppg").iterrows()
         ],
     }
+
+
+def _mirror_ownership_to_duckdb(
+    work: "pd.DataFrame",
+    game_date: "date",
+    site: str,
+    slate_id: str,
+    contest_type: str,
+    own_source: str = "synthetic",
+) -> None:
+    """
+    Mirror ownership rows to the local DuckDB so the GBR model can train
+    without a Postgres connection (dev / offline workflow).
+
+    ``work`` must have columns: name, fppg, [salary], [position], synthetic_own
+    OR for real rows: name, actual_own_pct, [fppg].
+    """
+    import pathlib as _pl
+
+    _root = _pl.Path(__file__).resolve().parents[2]
+    _db_path = _root / "data" / "ownership_history.duckdb"
+
+    own_col = "synthetic_own" if "synthetic_own" in work.columns else "actual_own_pct"
+    fppg_col = "fppg" if "fppg" in work.columns else None
+
+    try:
+        import duckdb as _ddb
+
+        con = _ddb.connect(str(_db_path))
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS ownership_history (
+                player_name    TEXT,
+                game_date      DATE,
+                site           TEXT,
+                slate_id       TEXT,
+                actual_own_pct DOUBLE,
+                proj_at_lock   DOUBLE,
+                salary         INTEGER,
+                team_total     DOUBLE,
+                is_home        BOOLEAN,
+                contest_type   TEXT,
+                own_source     TEXT,
+                PRIMARY KEY (player_name, game_date, site, slate_id)
+            )
+        """)
+
+        inserted = 0
+        for _, r in work.iterrows():
+            try:
+                con.execute(
+                    """
+                    INSERT INTO ownership_history
+                        (player_name, game_date, site, slate_id, actual_own_pct,
+                         proj_at_lock, salary, team_total, is_home, contest_type, own_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+                    ON CONFLICT (player_name, game_date, site, slate_id)
+                    DO UPDATE SET
+                        actual_own_pct = CASE
+                            WHEN excluded.own_source = 'real' THEN excluded.actual_own_pct
+                            WHEN ownership_history.own_source = 'real' THEN ownership_history.actual_own_pct
+                            ELSE excluded.actual_own_pct
+                        END,
+                        own_source = CASE
+                            WHEN excluded.own_source = 'real' THEN 'real'
+                            ELSE ownership_history.own_source
+                        END
+                    """,
+                    [
+                        str(r["name"]),
+                        game_date,
+                        site.upper(),
+                        slate_id or str(game_date),
+                        float(r[own_col]),
+                        float(r[fppg_col]) if fppg_col and pd.notna(r.get(fppg_col)) else None,
+                        int(r["salary"]) if "salary" in r and pd.notna(r.get("salary")) else None,
+                        contest_type.lower(),
+                        own_source,
+                    ],
+                )
+                inserted += 1
+            except Exception:
+                pass
+        con.close()
+        log.debug("DuckDB mirror: wrote %d rows (slate=%s, site=%s)", inserted, slate_id, site.upper())
+    except Exception as exc:
+        log.warning("DuckDB ownership mirror failed (non-fatal): %s", exc)
 
 
 def import_ownership_actuals(
@@ -780,6 +869,10 @@ def import_ownership_actuals(
             hist_session.close()
     except Exception as exc:
         log.warning("Could not write to ownership_history: %s", exc)
+
+    # ── Mirror real ownership to local DuckDB ────────────────────────────────
+    real_work = merged.rename(columns={"player_name": "name", "proj": "fppg"})
+    _mirror_ownership_to_duckdb(real_work, game_date, site, slate_id, contest_type, own_source="real")
 
     return {"imported": imported, "skipped": len(df) - imported, "source": site.upper()}
 

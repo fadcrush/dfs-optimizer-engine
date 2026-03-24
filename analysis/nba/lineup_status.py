@@ -100,7 +100,7 @@ def _load_historical_start_rates() -> dict[str, float]:
             WITH ranked AS (
                 SELECT
                     LOWER(player_name) AS name,
-                    MIN_played,
+                    minutes AS MIN_played,
                     ROW_NUMBER() OVER (PARTITION BY player_name ORDER BY game_date DESC) AS rn
                 FROM player_game_logs
             )

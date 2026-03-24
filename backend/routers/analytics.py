@@ -366,3 +366,90 @@ async def seed_ownership_from_slate(
     if "error" in result:
         raise HTTPException(status_code=422, detail=result["error"])
     return {"success": True, **result}
+
+
+# ---------------------------------------------------------------------------
+# Backtester accuracy trend — exposes projection_accuracy_log to the UI
+# ---------------------------------------------------------------------------
+
+@router.get("/backtester-trend")
+async def backtester_trend(
+    days: int = Query(default=30, ge=1, le=365, description="Lookback window in days"),
+    site: str = Query(default="DK", description="'DK' or 'FD'"),
+    current_user=Depends(get_current_user),
+):
+    """
+    Return rolling projection accuracy metrics from the backtester log.
+
+    Each row covers one scored slate date.  Use this to track whether
+    the model is improving or regressing over time.
+
+    Fields per row
+    --------------
+    run_date        : date the slate was scored
+    site            : DK or FD
+    n_players       : number of matched player rows
+    mae             : mean absolute error (lower = better)
+    rmse            : root mean squared error
+    bias            : positive = model over-projects on average
+    r_squared       : coefficient of determination (higher = better)
+    pct_within_5    : % of players within 5 FPTS of actual
+    pct_within_10   : % of players within 10 FPTS of actual
+
+    Also returns
+    ------------
+    trend           : "improving" | "regressing" | "flat" | "insufficient_data"
+                      Compares the MAE of the first half vs second half of the
+                      returned window.
+    latest          : the most recent single-date metrics dict (or null)
+    """
+    try:
+        from analysis.core.backtester import ProjectionBacktester
+        bt = ProjectionBacktester()
+        trend_df = bt.get_trend(n_days=days, site=site.upper())
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Backtester unavailable: {exc}",
+        )
+
+    if trend_df.empty:
+        return {
+            "days": days,
+            "site": site.upper(),
+            "rows": [],
+            "trend": "insufficient_data",
+            "latest": None,
+        }
+
+    rows = trend_df.to_dict("records")
+    # Serialise date/datetime objects to ISO strings
+    for r in rows:
+        for _k in ("run_date", "computed_at"):
+            if _k in r and hasattr(r[_k], "isoformat"):
+                r[_k] = r[_k].isoformat()
+
+    # Trend direction: compare first-half vs second-half mean MAE
+    trend = "insufficient_data"
+    maes = [r["mae"] for r in rows if r.get("mae") is not None]
+    if len(maes) >= 4:
+        mid = len(maes) // 2
+        old_mae = sum(maes[:mid]) / mid
+        new_mae = sum(maes[mid:]) / (len(maes) - mid)
+        diff = new_mae - old_mae
+        if diff < -0.5:
+            trend = "improving"
+        elif diff > 0.5:
+            trend = "regressing"
+        else:
+            trend = "flat"
+
+    latest = rows[-1] if rows else None
+
+    return {
+        "days": days,
+        "site": site.upper(),
+        "rows": rows,
+        "trend": trend,
+        "latest": latest,
+    }

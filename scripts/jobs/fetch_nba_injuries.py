@@ -553,28 +553,28 @@ def _ensure_db(db_path: Path) -> None:
         )
     """)
 
-    # Always replace the view so schema changes take effect
+    # Always replace the view so schema changes take effect.
+    # Only include players from the most recent fetch batch (within 30 min of
+    # the latest fetched_at). This prevents cleared/healthy players from
+    # appearing as injured just because an older record exists for them.
     con.execute("""
         CREATE OR REPLACE VIEW vw_nba_injury_status AS
+        WITH latest_batch AS (
+            SELECT MAX(fetched_at) AS max_ts FROM nba_injury_report
+        )
         SELECT
-            player_id,
-            player_name,
-            UPPER(status)  AS status,
-            reason         AS detail,
-            game_date,
-            game_time,
-            matchup,
-            team,
-            1.0            AS confidence
-        FROM (
-            SELECT *,
-                ROW_NUMBER() OVER (
-                    PARTITION BY player_id
-                    ORDER BY fetched_at DESC
-                ) AS rn
-            FROM nba_injury_report
-        ) t
-        WHERE rn = 1
+            r.player_id,
+            r.player_name,
+            UPPER(r.status)  AS status,
+            r.reason         AS detail,
+            r.game_date,
+            r.game_time,
+            r.matchup,
+            r.team,
+            1.0              AS confidence
+        FROM nba_injury_report r
+        CROSS JOIN latest_batch
+        WHERE r.fetched_at >= latest_batch.max_ts - INTERVAL 30 MINUTES
     """)
 
 

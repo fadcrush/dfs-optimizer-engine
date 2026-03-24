@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pandas as pd
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -85,7 +84,7 @@ class TestInjurySummary:
         with patch.object(injuries_module, "load_injury_status", return_value=_injury_df()):
             resp = _anon_client().get("/api/injuries/summary")
         player = resp.json()["players"][0]
-        for field in ("player_name", "status", "detail", "team", "game_date"):
+        for field in ("player_name", "status", "detail", "team", "game_date", "p_play", "confidence_score"):
             assert field in player
 
     def test_status_is_uppercased(self) -> None:
@@ -144,9 +143,34 @@ class TestRefresh:
 
     def test_refresh_returns_started(self) -> None:
         # Mock the inner thread target so it doesn't try to fetch real data
-        with patch.object(injuries_module, "invalidate_cache"):
+        with (
+            patch.object(injuries_module, "invalidate_cache"),
+            patch.object(injuries_module, "load_injury_status", return_value=_injury_df()),
+            patch.object(injuries_module._intelligence, "sync_current_injuries", return_value={"built_events": 4}),
+        ):
             resp = _authed_client().post("/api/injuries/refresh")
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "started"
         assert "timestamp" in body
+
+
+class TestInjuryStateSnapshot:
+    def test_state_snapshot_returns_count(self) -> None:
+        state_df = pd.DataFrame(
+            [
+                {
+                    "player_id": "lebron_james",
+                    "player_name": "LeBron James",
+                    "current_status": "OUT",
+                    "p_play": 0.02,
+                    "updated_at": "2026-03-23T12:00:00+00:00",
+                }
+            ]
+        )
+        with patch.object(injuries_module._intelligence, "load_player_states_df", return_value=state_df):
+            resp = _anon_client().get("/api/injuries/state")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["count"] == 1
+        assert body["players"][0]["player_id"] == "lebron_james"

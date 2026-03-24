@@ -54,10 +54,11 @@ def _load_training_data(sport: str, site: str) -> pd.DataFrame:
     """
     Load ownership history for model training, enriched with game-log features.
 
-    Base features come from the postgres ownership_history table (seeded from
-    salary files / lineup imports).  Enriched features come from
-    dfs_edge.duckdb::player_game_logs:
+    Priority:
+      1. Postgres ``ownership_history`` table (when DATABASE_URL is set)
+      2. Local ``data/ownership_history.duckdb`` (fallback — dev / no-Postgres)
 
+    Enriched features come from dfs_edge.duckdb::player_game_logs:
       l10_avg  — rolling 10-game average DK/FD pts (better proj proxy)
       l10_std  — rolling 10-game std dev (consistency — low σ → higher ownership)
       is_home  — filled in from game_logs where NULL in training rows
@@ -67,36 +68,68 @@ def _load_training_data(sport: str, site: str) -> pd.DataFrame:
     import os as _os
 
     db_url = _os.getenv("DATABASE_URL")
-    if not db_url:
-        log.warning("DATABASE_URL not set — cannot load ownership training data")
-        return pd.DataFrame()
+    if db_url:
+        try:
+            from sqlalchemy import create_engine, text as _text
 
-    try:
-        from sqlalchemy import create_engine, text as _text
-
-        engine = create_engine(db_url, pool_pre_ping=True)
-        with engine.connect() as conn:
-            result = conn.execute(
-                _text("""
-                    SELECT player_name, game_date, actual_own_pct, proj_at_lock,
-                           salary, team_total, is_home, contest_type
-                    FROM ownership_history
-                    WHERE site = :site
-                    ORDER BY game_date ASC
-                """),
-                {"site": site.upper()},
+            engine = create_engine(db_url, pool_pre_ping=True)
+            with engine.connect() as conn:
+                result = conn.execute(
+                    _text("""
+                        SELECT player_name, game_date, actual_own_pct, proj_at_lock,
+                               salary, team_total, is_home, contest_type
+                        FROM ownership_history
+                        WHERE site = :site
+                        ORDER BY game_date ASC
+                    """),
+                    {"site": site.upper()},
+                )
+                rows = result.fetchall()
+                df = pd.DataFrame(rows, columns=list(result.keys()))
+            engine.dispose()
+            if not df.empty:
+                log.info(
+                    "Loaded %d ownership training rows from Postgres (site=%s)",
+                    len(df), site.upper(),
+                )
+                return _enrich_with_game_logs(df, site)
+        except Exception as exc:
+            log.warning(
+                "Could not load ownership training data from Postgres: %s — trying local DuckDB",
+                exc,
             )
-            rows = result.fetchall()
-            df = pd.DataFrame(rows, columns=list(result.keys()))
-        engine.dispose()
-    except Exception as exc:
-        log.warning("Could not load ownership training data from Postgres: %s", exc)
-        return pd.DataFrame()
+    else:
+        log.warning("DATABASE_URL not set — falling back to local ownership_history.duckdb")
 
-    if df.empty:
-        return df
+    # ── Local DuckDB fallback ────────────────────────────────────────────────
+    if OWNERSHIP_DB.exists():
+        try:
+            import duckdb as _ddb
 
-    return _enrich_with_game_logs(df, site)
+            con = _ddb.connect(str(OWNERSHIP_DB), read_only=True)
+            df = con.execute(
+                """
+                SELECT player_name, game_date, actual_own_pct, proj_at_lock,
+                       salary, team_total, is_home, contest_type
+                FROM ownership_history
+                WHERE site = ?
+                ORDER BY game_date ASC
+                """,
+                [site.upper()],
+            ).df()
+            con.close()
+            if not df.empty:
+                log.info(
+                    "Loaded %d ownership training rows from local DuckDB (site=%s)",
+                    len(df), site.upper(),
+                )
+                return _enrich_with_game_logs(df, site)
+        except Exception as exc:
+            log.warning("Could not load from local ownership_history.duckdb: %s", exc)
+    else:
+        log.warning("Local ownership_history.duckdb not found at %s", OWNERSHIP_DB)
+
+    return pd.DataFrame()
 
 
 def _enrich_with_game_logs(df: pd.DataFrame, site: str) -> pd.DataFrame:
@@ -632,6 +665,7 @@ def predict_ownership(
     sport: str = "NBA",
     site: str = "DK",
     contest_type: str = "gpp",
+    states_df: "pd.DataFrame | None" = None,
 ) -> pd.DataFrame:
     """
     Add ``Own_Est`` column to a projections DataFrame.
@@ -639,9 +673,10 @@ def predict_ownership(
     Uses the calibrated GBR model when available, falls back to the percentile
     rank heuristic.  Ownership output is rescaled to the contest_type range.
 
-    Leverage scoring is intentionally NOT computed here — use
-    ``analysis.core.exposure_optimizer.compute_leverage_scores()`` which applies
-    the full ExposureConfig parameters consistently across the whole pipeline.
+    When ``states_df`` is provided (rows from ``player_injury_state``), each
+    player's ownership estimate is multiplied by their ``p_play`` probability —
+    preventing unrealistically high ownership for GTD/Doubtful players who may
+    not even play.  Healthy players (p_play ≈ 1.0) are unaffected.
 
     Parameters
     ----------
@@ -649,6 +684,7 @@ def predict_ownership(
     sport        : "NBA" or "NFL"
     site         : "DK" or "FD"
     contest_type : "gpp" | "cash" | "double_up" | "winner_take_all"
+    states_df    : Optional player_injury_state DataFrame with p_play column.
 
     Returns
     -------
@@ -689,6 +725,54 @@ def predict_ownership(
         df["Own"] = df["Own_Est"]
         df["own_source"] = "fallback"
 
+    # ── Injury p_play suppression ────────────────────────────────────────────
+    # For players with non-trivial injury risk, scale down ownership estimate
+    # proportionally to their probability of actually playing.
+    if states_df is not None and not states_df.empty and "Own_Est" in df.columns:
+        df = _apply_pplay_suppression(df, states_df)
+        df["Own"] = df["Own_Est"]
+
+    return df
+
+
+def _apply_pplay_suppression(df: pd.DataFrame, states_df: pd.DataFrame) -> pd.DataFrame:
+    """Multiply Own_Est by p_play for each player found in states_df.
+
+    Only suppresses players with p_play < 0.95 to avoid touching healthy players.
+    Looks up by upper-cased Name column.  Falls back gracefully if columns are absent.
+    """
+    if "Own_Est" not in df.columns or states_df.empty:
+        return df
+    name_col = next((c for c in ["Name", "name", "player_name"] if c in df.columns), None)
+    if name_col is None:
+        return df
+
+    # Build {NAME_UPPER → p_play} from states_df
+    pid_col = "player_id" if "player_id" in states_df.columns else None
+    pplay_col = "p_play" if "p_play" in states_df.columns else None
+    if not pplay_col:
+        return df
+
+    # Try player_name first for matching, then player_id slug
+    name_state_col = next((c for c in ["player_name", "player_id"] if c in states_df.columns), None)
+    if not name_state_col:
+        return df
+
+    pplay_map: dict[str, float] = {
+        str(row[name_state_col]).strip().upper(): float(row[pplay_col])
+        for _, row in states_df.iterrows()
+        if float(row.get(pplay_col, 1.0)) < 0.95
+    }
+    if not pplay_map:
+        return df
+
+    df = df.copy()
+    name_upper = df[name_col].map(lambda n: str(n).strip().upper())
+    p_play_series = name_upper.map(lambda k: pplay_map.get(k, 1.0))
+    df["Own_Est"] = (df["Own_Est"] * p_play_series).round(2)
+    suppressed = int((p_play_series < 0.95).sum())
+    if suppressed:
+        log.debug("p_play ownership suppression applied to %d players", suppressed)
     return df
 
 
