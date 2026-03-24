@@ -120,22 +120,22 @@ export function getStatusBadge(item: CandidatePoolItem): StatusBadge {
     return { label: 'STARTED', bg: '#292524', color: '#78716c' }
   }
   if (item.reasonExcluded === ExclusionReason.SALARY_TOO_HIGH) {
-    return { label: '$ HIGH',  bg: '#431407', color: '#f97316' }
+    return { label: 'OVER $',    bg: '#431407', color: '#f97316' }
   }
   if (item.reasonExcluded === ExclusionReason.ALREADY_IN_LINEUP) {
-    return { label: 'IN LU',   bg: '#1e3a5f', color: '#60a5fa' }
+    return { label: 'IN LU',     bg: '#1e3a5f', color: '#60a5fa' }
   }
   if (item.reasonExcluded === ExclusionReason.USER_EXCLUDED) {
-    return { label: 'EXCL',    bg: '#450a0a', color: '#fca5a5' }
+    return { label: 'EXCLUDED',  bg: '#450a0a', color: '#fca5a5' }
   }
   if (item.status === 'gtd') {
-    return { label: 'GTD',     bg: '#78350f', color: '#fde68a' }
+    return { label: 'GTD',       bg: '#78350f', color: '#fde68a' }
   }
   if (item.status === 'confirmed_starter') {
-    return { label: 'ACTIVE',  bg: '#14532d', color: '#4ade80' }
+    return { label: 'ACTIVE',    bg: '#14532d', color: '#4ade80' }
   }
   if (item.eligible) {
-    return { label: 'OK',      bg: '#14532d', color: '#4ade80' }
+    return { label: 'LEGAL',     bg: '#14532d', color: '#4ade80' }
   }
-  return   { label: 'EXCL',    bg: '#1e293b', color: '#64748b' }
+  return   { label: 'EXCL',      bg: '#1e293b', color: '#64748b' }
 }

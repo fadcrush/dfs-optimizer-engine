@@ -86,10 +86,10 @@ function fmtML(val: number | null): string {
   return val > 0 ? `+${val}` : String(val)
 }
 
-const btnBlueCls  = 'px-3 py-[5px] text-xs font-semibold cursor-pointer rounded-[6px] bg-[#1e3a5f] text-[#60a5fa] border border-[#60a5fa]/20'
-const btnRedCls   = 'px-3 py-[5px] text-xs font-semibold cursor-pointer rounded-[6px] bg-[#3b0f0f] text-[#f87171] border border-[#f87171]/20'
-const btnGrayCls  = 'px-3 py-[5px] text-[11px] font-semibold cursor-pointer rounded-[6px] bg-[#1e293b] text-[#94a3b8] border border-[#94a3b8]/20'
-const btnDangerCls = 'px-2.5 py-1 text-[11px] font-semibold cursor-pointer rounded-[6px] bg-[#7f1d1d] text-[#fca5a5] border border-[#fca5a5]/20'
+const btnBlueCls  = 'px-3 py-[6px] text-xs font-semibold cursor-pointer rounded-full bg-[#163654] text-[#7dd3fc] border border-[#7dd3fc]/20'
+const btnRedCls   = 'px-3 py-[6px] text-xs font-semibold cursor-pointer rounded-full bg-[#5b1726] text-[#fecdd3] border border-[#fecdd3]/20'
+const btnGrayCls  = 'px-3 py-[6px] text-[11px] font-semibold cursor-pointer rounded-full glass-strip text-text-secondary border border-surface-border/50'
+const btnDangerCls = 'px-3 py-1 text-[11px] font-semibold cursor-pointer rounded-full bg-[#5b1726] text-[#fecdd3] border border-[#fecdd3]/20'
 
 // ---------------------------------------------------------------------------
 // GameCard
@@ -101,8 +101,8 @@ function GameCard({ game }: { game: Game }) {
   const over = game.total !== null ? `O/U ${game.total}` : 'O/U N/A'
 
   return (
-    <div className="shrink-0 w-48 bg-[#111827] border border-[#1e2a3a] rounded-lg px-3 py-2.5">
-      <div className="text-[10px] text-[#64748b] mb-[7px] text-center">
+    <div className="shrink-0 w-52 glass-panel rounded-2xl px-3 py-3">
+      <div className="text-[10px] text-text-muted mb-[7px] text-center uppercase tracking-[0.12em] font-bold">
         {game.time}
       </div>
 
@@ -112,9 +112,9 @@ function GameCard({ game }: { game: Game }) {
           <div className="w-7 h-7 rounded-[5px] flex items-center justify-center text-[9px] font-extrabold text-white bg-[var(--tc)]" style={{'--tc': teamColor(game.away_abbr)} as React.CSSProperties}>
             {game.away_abbr.slice(0, 3)}
           </div>
-          <span className="text-[11px] text-[#cbd5e1] font-semibold">{game.away_abbr}</span>
+          <span className="text-[11px] text-text-primary font-semibold">{game.away_abbr}</span>
         </div>
-        <span className="text-[11px] text-[#f1f5f9] font-mono">{awaySpread}</span>
+        <span className="text-[11px] text-text-primary font-mono">{awaySpread}</span>
         <span className="text-[11px] text-text-muted font-mono min-w-[40px] text-right">{fmtML(game.away_ml)}</span>
       </div>
 
@@ -124,14 +124,14 @@ function GameCard({ game }: { game: Game }) {
           <div className="w-7 h-7 rounded-[5px] flex items-center justify-center text-[9px] font-extrabold text-white bg-[var(--tc)]" style={{'--tc': teamColor(game.home_abbr)} as React.CSSProperties}>
             {game.home_abbr.slice(0, 3)}
           </div>
-          <span className="text-[11px] text-[#cbd5e1] font-semibold">{game.home_abbr}</span>
+          <span className="text-[11px] text-text-primary font-semibold">{game.home_abbr}</span>
         </div>
-        <span className="text-[11px] text-[#f1f5f9] font-mono">{homeSpread}</span>
+        <span className="text-[11px] text-text-primary font-mono">{homeSpread}</span>
         <span className="text-[11px] text-text-muted font-mono min-w-[40px] text-right">{fmtML(game.home_ml)}</span>
       </div>
 
       {/* Total */}
-      <div className="mt-2 border-t border-[#1e2a3a] pt-1.5 text-center text-[10px] text-[#60a5fa]">
+      <div className="mt-2 border-t border-surface-border/60 pt-1.5 text-center text-[10px] text-[#f4b540] font-semibold tracking-[0.08em] uppercase">
         {over}
       </div>
     </div>
@@ -316,14 +316,15 @@ export default function DashboardPage() {
   const pageRows   = filteredPlayers.slice(tablePage * rowsPerPage, (tablePage + 1) * rowsPerPage)
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-[#e2e8f0] font-sans">
-      <div className="max-w-[1400px] mx-auto px-4 py-5">
+    <div className="min-h-screen bg-surface-base text-text-primary font-sans px-3 py-3 md:px-4 md:py-5">
+      <div className="max-w-[1400px] mx-auto glass-page rounded-[30px] px-4 py-5 md:px-6 md:py-6">
 
         {/* ========== Header ========== */}
-        <div className="flex justify-between items-start mb-6 flex-wrap gap-2.5">
+        <div className="flex justify-between items-start mb-6 flex-wrap gap-3">
           <div>
-            <h1 className="m-0 text-[22px] font-bold text-[#f1f5f9]">DFS Dashboard</h1>
-            <p className="m-0 mt-1 text-xs text-[#64748b]">
+            <div className="section-label text-[#f4b540] mb-2">Today&apos;s Board</div>
+            <h1 className="m-0 display-title text-4xl leading-none text-text-primary">DFS Dashboard</h1>
+            <p className="m-0 mt-2 text-sm text-text-secondary">
               {gamesDate
                 ? new Date(gamesDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
                 : 'Today'}
@@ -333,7 +334,7 @@ export default function DashboardPage() {
           </div>
           <button
             onClick={() => router.push('/optimizer')}
-            className="px-5 py-2.5 bg-[#1d4ed8] text-white border-none rounded-lg text-[13px] font-semibold cursor-pointer flex items-center gap-2"
+            className="px-5 py-2.5 bg-primary text-[#101722] border border-primary rounded-full text-[13px] font-black cursor-pointer flex items-center gap-2 shadow-[0_0_24px_rgba(244,181,64,0.22)]"
           >
             Go to Optimizer
             {excludedCount > 0 && (
@@ -347,16 +348,16 @@ export default function DashboardPage() {
         {/* ========== Odds Strip ========== */}
         <section className="mb-[30px]">
           <div className="flex items-center justify-between mb-2.5">
-            <h2 className="m-0 text-xs font-semibold text-text-muted uppercase tracking-[0.06em]">
+            <h2 className="m-0 section-label">
               Today&apos;s Games
             </h2>
-            <span className="text-[11px] text-[#475569]">{games.length} game{games.length !== 1 ? 's' : ''}</span>
+            <span className="text-[11px] text-text-muted">{games.length} game{games.length !== 1 ? 's' : ''}</span>
           </div>
 
           {gamesLoading ? (
             <div className="flex gap-2.5">
               {[1,2,3,4].map(i => (
-                <div key={i} className="shrink-0 w-48 h-28 bg-[#111827] rounded-lg opacity-40" />
+                <div key={i} className="shrink-0 w-52 h-28 glass-panel rounded-2xl opacity-40" />
               ))}
             </div>
           ) : (
@@ -373,11 +374,11 @@ export default function DashboardPage() {
         <section className="mb-[30px]">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <div>
-              <h2 className="m-0 text-xs font-semibold text-text-muted uppercase tracking-[0.06em]">
+              <h2 className="m-0 section-label">
                 Slate Teams
               </h2>
               {latestSlate && (
-                <p className="m-0 mt-[3px] text-[11px] text-[#475569]">
+                <p className="m-0 mt-[3px] text-[11px] text-text-muted">
                   {latestSlate.platform.toUpperCase()} · {latestSlate.sport.toUpperCase()} · {latestSlate.date}
                   {teams.length > 0 ? ` · ${teams.length} teams` : ''}
                 </p>
@@ -398,12 +399,12 @@ export default function DashboardPage() {
               ))}
             </div>
           ) : teams.length === 0 ? (
-            <div className="bg-[#111827] border border-dashed border-[#1e2a3a] rounded-[10px] px-6 py-8 text-center text-[#475569]">
+            <div className="glass-panel border-dashed rounded-[20px] px-6 py-8 text-center text-text-muted">
               <div className="text-2xl mb-2">📋</div>
-              <div className="text-sm font-semibold text-[#64748b] mb-1">No slate uploaded yet</div>
+              <div className="text-sm font-semibold text-text-secondary mb-1">No slate uploaded yet</div>
               <div className="text-xs">
                 Upload a CSV on the{' '}
-                <span onClick={() => router.push('/slates')} className="text-[#60a5fa] cursor-pointer underline">
+                <span onClick={() => router.push('/slates')} className="text-[#7dd3fc] cursor-pointer underline">
                   Slates page
                 </span>{' '}
                 to see team controls here.
@@ -420,17 +421,17 @@ export default function DashboardPage() {
                     title={included ? 'Click to fade this team' : 'Click to include this team'}
                     style={{'--tc': teamColor(abbr)} as React.CSSProperties}
                     className={cn(
-                      'w-20 h-[68px] rounded-lg flex flex-col items-center justify-center gap-1 relative cursor-pointer',
+                      'w-20 h-[68px] rounded-2xl flex flex-col items-center justify-center gap-1 relative cursor-pointer',
                       'transition-opacity duration-150',
                       included
-                        ? 'border-2 border-[var(--tc)] bg-[color-mix(in_srgb,var(--tc)_13%,transparent)] opacity-100'
-                        : 'border-2 border-[#1e2a3a] bg-[#0d1117] opacity-40'
+                        ? 'border-2 border-[var(--tc)] bg-[color-mix(in_srgb,var(--tc)_14%,rgba(12,20,34,0.85))] opacity-100'
+                        : 'border-2 border-surface-border/50 bg-[rgba(7,14,24,0.72)] opacity-40'
                     )}
                   >
                     <div className={cn('w-8 h-8 rounded-[6px] flex items-center justify-center text-[10px] font-extrabold text-white', included ? 'bg-[var(--tc)]' : 'bg-[#1e2a3a]')}>
                       {abbr.slice(0, 3)}
                     </div>
-                    <span className={`text-[10px] font-semibold ${included ? 'text-[#e2e8f0]' : 'text-[#475569]'}`}>
+                    <span className={`text-[10px] font-semibold ${included ? 'text-text-primary' : 'text-text-muted'}`}>
                       {abbr}
                     </span>
                     {!included && (
@@ -445,7 +446,7 @@ export default function DashboardPage() {
           )}
 
           {excludedCount > 0 && teams.length > 0 && (
-            <div className="mt-3.5 px-3.5 py-2.5 bg-[#1a0a0a] border border-[#7f1d1d] rounded-lg text-xs text-[#fca5a5] flex items-center justify-between flex-wrap gap-2">
+            <div className="mt-3.5 px-3.5 py-2.5 bg-[#2b1018] border border-[#5b1726] rounded-2xl text-xs text-[#fecdd3] flex items-center justify-between flex-wrap gap-2">
               <span>
                 <strong>{excludedCount}</strong> team{excludedCount !== 1 ? 's' : ''} faded —
                 players from these teams will be excluded when you run the optimizer.
@@ -465,7 +466,7 @@ export default function DashboardPage() {
               className="flex items-center gap-2 mb-2.5 flex-wrap"
               onClick={() => showColMenu && setShowColMenu(false)}
             >
-              <h2 className="m-0 mr-1 text-[11px] font-bold text-[#64748b] uppercase tracking-[0.08em]">
+              <h2 className="m-0 mr-1 section-label">
                 Players
               </h2>
 
@@ -480,10 +481,10 @@ export default function DashboardPage() {
                 {showColMenu && (
                   <div
                     onClick={e => e.stopPropagation()}
-                    className="absolute top-[110%] left-0 z-50 bg-[#1e293b] border border-[#334155] rounded-lg py-2 min-w-[140px] shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+                    className="absolute top-[110%] left-0 z-50 glass-panel rounded-2xl py-2 min-w-[140px] shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
                   >
                     {ALL_COLS.map(col => (
-                      <label key={col.key} className="flex items-center gap-2 px-3.5 py-1.5 cursor-pointer text-xs text-[#cbd5e1] select-none">
+                      <label key={col.key} className="flex items-center gap-2 px-3.5 py-1.5 cursor-pointer text-xs text-text-primary select-none">
                         <input
                           type="checkbox"
                           checked={visibleCols.has(col.key)}
@@ -502,7 +503,7 @@ export default function DashboardPage() {
                 {POSITIONS.map(pos => (
                   <button key={pos} onClick={() => { setPosFilter(pos); setTablePage(0) }}
                     className={`px-2.5 py-1 rounded-[5px] text-[11px] font-semibold cursor-pointer border-none ${
-                      posFilter === pos ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'
+                      posFilter === pos ? 'bg-[#4d3a13] text-[#f4b540]' : 'bg-[rgba(7,14,24,0.58)] text-text-muted'
                     }`}>
                     {pos}
                   </button>
@@ -516,24 +517,24 @@ export default function DashboardPage() {
                   value={search}
                   onChange={e => { setSearch(e.target.value); setTablePage(0) }}
                   placeholder="Search players…"
-                  className="w-full bg-[#1e293b] text-[#f1f5f9] border border-[#334155] rounded-[6px] py-1.5 pr-2.5 pl-7 text-xs outline-none box-border"
+                  className="w-full glass-strip text-text-primary rounded-full py-2 pr-2.5 pl-7 text-xs outline-none box-border"
                 />
                 {search && (
                   <button onClick={() => { setSearch(''); setTablePage(0) }} className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent border-none text-[#475569] cursor-pointer text-sm leading-none">✕</button>
                 )}
               </div>
 
-              <span className="text-[11px] text-[#334155] whitespace-nowrap">
+              <span className="text-[11px] text-text-muted whitespace-nowrap">
                 {filteredPlayers.length} of {players.length}
               </span>
             </div>
 
             {/* Table */}
-            <div className="bg-[#0f172a] border border-surface-border rounded-[10px] overflow-hidden">
+            <div className="glass-panel rounded-[24px] overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-xs">
                   <thead>
-                    <tr className="bg-[#111827] border-b border-surface-border">
+                    <tr className="bg-[rgba(7,14,24,0.92)] border-b border-surface-border">
                       <th className={thStyle('left')}   onClick={() => handleSort('name')}>PLAYER{sortIcon('name')}</th>
                       <th className={thStyle('left')}>POS</th>
                       <th className={thStyle('left')}>TEAM</th>
@@ -566,19 +567,19 @@ export default function DashboardPage() {
                                 key={`${p.name}-${i}`}
                                 onClick={() => togglePlayer(p.name)}
                                 title={playerSkipped ? 'Click to un-skip this player' : 'Click to skip this player'}
-                                className={cn('border-b border-[#111827] cursor-pointer transition-opacity duration-100', i % 2 === 0 ? 'bg-slate-900' : 'bg-[#0a1020]', faded ? 'opacity-30' : 'opacity-100')}
+                                className={cn('border-b border-surface-border/40 cursor-pointer transition-opacity duration-100', i % 2 === 0 ? 'bg-[rgba(255,255,255,0.01)]' : 'bg-[rgba(7,14,24,0.22)]', faded ? 'opacity-30' : 'opacity-100')}
                               >
                                 {/* Player name */}
                                 <td className="px-3 py-2 whitespace-nowrap">
                                   <div className="flex items-center gap-1.5">
-                                    <span className={`font-semibold ${faded ? 'text-[#475569]' : 'text-[#f1f5f9]'}`}>{p.name}</span>
+                                    <span className={`font-semibold ${faded ? 'text-text-muted' : 'text-text-primary'}`}>{p.name}</span>
                                     {teamFaded   && <span className="text-[9px] text-danger font-extrabold bg-[#3b0000] rounded-[3px] px-1 py-px">TEAM OUT</span>}
                                     {playerSkipped && !teamFaded && <span className="text-[9px] text-warning font-extrabold bg-[#451a03] rounded-[3px] px-1 py-px">SKIP</span>}
                                   </div>
                                 </td>
                                 {/* Position */}
                                 <td className="px-3 py-2 whitespace-nowrap">
-                                  <span className="text-[10px] text-text-muted bg-surface-border rounded px-1.5 py-0.5 font-semibold">
+                                    <span className="text-[10px] text-text-muted bg-[rgba(129,143,166,0.12)] rounded-full px-2 py-0.5 font-semibold border border-surface-border/40">
                                     {p.position_raw || p.position}
                                   </span>
                                 </td>
@@ -588,12 +589,12 @@ export default function DashboardPage() {
                                     <div className="w-[18px] h-[18px] rounded-[3px] flex items-center justify-center text-[7px] font-extrabold text-white shrink-0 bg-[var(--pt)]" style={{'--pt': teamColor(p.team)} as React.CSSProperties}>
                                       {p.team.slice(0, 3)}
                                     </div>
-                                    <span className={`font-semibold text-[11px] ${faded ? 'text-[#475569]' : 'text-[#cbd5e1]'}`}>{p.team}</span>
+                                    <span className={`font-semibold text-[11px] ${faded ? 'text-text-muted' : 'text-text-primary'}`}>{p.team}</span>
                                   </div>
                                 </td>
                                 {/* Opponent */}
                                 <td className="px-3 py-2">
-                                  <span className="text-[#64748b] text-[11px]">
+                                  <span className="text-text-muted text-[11px]">
                                     {p.opponent ? `vs ${p.opponent}` : '—'}
                                   </span>
                                 </td>
@@ -619,7 +620,7 @@ export default function DashboardPage() {
                                 {visibleCols.has('injury') && (
                                   <td className="px-3 py-2 text-center">
                                     {p.injury
-                                      ? <span className="text-[10px] font-bold text-warning bg-[#451a03] rounded px-1.5 py-0.5">{p.injury}</span>
+                                      ? <span className="text-[10px] font-bold text-warning bg-[#4a3514] rounded-full px-2 py-0.5 border border-[#fbbf24]/15">{p.injury}</span>
                                       : <span className="text-[10px] text-success">—</span>
                                     }
                                   </td>
@@ -634,29 +635,29 @@ export default function DashboardPage() {
 
               {/* Pagination footer */}
               {filteredPlayers.length > 0 && (
-                <div className="flex items-center justify-between px-4 py-2.5 border-t border-surface-border flex-wrap gap-2">
-                  <div className="flex items-center gap-1.5 text-[11px] text-[#64748b]">
+                <div className="flex items-center justify-between px-4 py-3 border-t border-surface-border flex-wrap gap-2 bg-[rgba(7,14,24,0.35)]">
+                  <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
                     <span>Rows:</span>
                     {[25, 50, 100].map(n => (
                       <button key={n} onClick={() => { setRowsPerPage(n); setTablePage(0) }}
                         className={`px-2 py-[3px] border-none rounded cursor-pointer text-[11px] font-semibold ${
-                          rowsPerPage === n ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'
+                          rowsPerPage === n ? 'bg-[#4d3a13] text-[#f4b540]' : 'bg-[rgba(7,14,24,0.58)] text-text-muted'
                         }`}>
                         {n}
                       </button>
                     ))}
                   </div>
-                  <div className="flex items-center gap-2 text-[11px] text-[#64748b]">
+                  <div className="flex items-center gap-2 text-[11px] text-text-muted">
                     <span>
                       {tablePage * rowsPerPage + 1}–{Math.min((tablePage + 1) * rowsPerPage, filteredPlayers.length)} of {filteredPlayers.length}
                     </span>
                     <button onClick={() => setTablePage(p => Math.max(0, p - 1))} disabled={tablePage === 0}
-                      className={`px-[9px] py-[3px] bg-[#1e293b] border-none rounded-[4px] text-[13px] ${
-                        tablePage === 0 ? 'text-slate-700 cursor-default' : 'text-slate-400 cursor-pointer'
+                      className={`px-[9px] py-[3px] bg-[rgba(7,14,24,0.58)] border-none rounded-[8px] text-[13px] ${
+                        tablePage === 0 ? 'text-slate-700 cursor-default' : 'text-text-secondary cursor-pointer'
                       }`}>‹</button>
                     <button onClick={() => setTablePage(p => Math.min(totalPages - 1, p + 1))} disabled={tablePage >= totalPages - 1}
-                      className={`px-[9px] py-[3px] bg-[#1e293b] border-none rounded-[4px] text-[13px] ${
-                        tablePage >= totalPages - 1 ? 'text-slate-700 cursor-default' : 'text-slate-400 cursor-pointer'
+                      className={`px-[9px] py-[3px] bg-[rgba(7,14,24,0.58)] border-none rounded-[8px] text-[13px] ${
+                        tablePage >= totalPages - 1 ? 'text-slate-700 cursor-default' : 'text-text-secondary cursor-pointer'
                       }`}>›</button>
                   </div>
                 </div>
@@ -676,11 +677,11 @@ export default function DashboardPage() {
             <div
               key={href}
               onClick={() => router.push(href)}
-              className="flex-[1_1_180px] min-w-[160px] bg-[#111827] border border-[#1e2a3a] rounded-[10px] px-4 py-3.5 cursor-pointer hover:border-[#3b4a5e] transition-colors"
+              className="flex-[1_1_180px] min-w-[160px] glass-panel rounded-[20px] px-4 py-4 cursor-pointer hover:border-[#f4b540]/22 transition-colors"
             >
               <div className="text-xl">{icon}</div>
-              <div className="text-[13px] font-semibold text-[#f1f5f9] mt-1.5">{label}</div>
-              <div className="text-[11px] text-[#64748b] mt-0.5">{desc}</div>
+              <div className="text-[13px] font-semibold text-text-primary mt-1.5">{label}</div>
+              <div className="text-[11px] text-text-muted mt-0.5">{desc}</div>
             </div>
           ))}
         </div>
@@ -716,5 +717,5 @@ function valColor(v: number): string {
 }
 
 function thStyle(align: 'left' | 'right' | 'center'): string {
-  return `px-3 py-[9px] text-${align} text-[10px] font-bold text-[#64748b] uppercase tracking-[0.06em] cursor-pointer whitespace-nowrap select-none`
+  return `px-3 py-[9px] text-${align} text-[10px] font-black text-text-muted uppercase tracking-[0.14em] cursor-pointer whitespace-nowrap select-none`
 }

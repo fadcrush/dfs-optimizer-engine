@@ -232,12 +232,12 @@ export interface PoolSummary {
 
 export function computePoolSummary(
   items: CandidatePoolItem[],
-  result: { swaps: SwapResult[] },
+  result: { swaps: SwapResult[]; current_salary?: number; salary_cap?: number },
 ): PoolSummary {
-  const remainingSalary = Math.min(
-    ...result.swaps.map(s => s.salary_budget),
-    99999,
-  )
+  const remainingSalary =
+    result.current_salary != null && result.salary_cap != null
+      ? result.salary_cap - result.current_salary
+      : Math.min(...result.swaps.map(s => s.salary_budget), 99999)
   const openPositions = [...new Set(result.swaps.map(s => s.scratched_position))]
 
   return {

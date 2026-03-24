@@ -54,7 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!AUTH_DISABLED && !isPublicRoute && hasSession === null) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-surface-base px-6">
-        <div className="max-w-md rounded-2xl border border-surface-border bg-surface-raised px-6 py-5 text-center shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
+        <div className="glass-page max-w-md rounded-[24px] px-6 py-5 text-center">
           <div className="text-sm font-semibold text-text-primary">Loading workspace</div>
           <p className="mt-2 text-sm leading-6 text-text-muted">
             Checking your local session before loading protected DFS pages.
@@ -67,7 +67,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!AUTH_DISABLED && !isPublicRoute && hasSession === false) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-surface-base px-6">
-        <div className="max-w-md rounded-2xl border border-surface-border bg-surface-raised px-6 py-5 text-center shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
+        <div className="glass-page max-w-md rounded-[24px] px-6 py-5 text-center">
           <div className="text-sm font-semibold text-text-primary">Authentication required</div>
           <p className="mt-2 text-sm leading-6 text-text-muted">
             Redirecting to sign in before loading your protected DFS workspace.
@@ -84,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface-base">
+    <div className="flex h-screen overflow-hidden bg-surface-base relative">
       {!isPublicRoute && <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />}
       <div
         className={cn(
@@ -92,8 +92,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           isPublicRoute ? 'pl-0' : collapsed ? 'pl-16' : 'pl-60',
         )}
       >
-        <main className="flex-1 overflow-y-auto scrollbar-thin">{children}</main>
-        <footer className="shrink-0 border-t border-surface-border/50 px-6 py-2 flex items-center justify-end gap-4">
+        <main className="flex-1 overflow-y-auto scrollbar-thin relative">{children}</main>
+        <footer className="shrink-0 border-t border-surface-border/50 px-6 py-3 flex items-center justify-end gap-4 glass-strip mx-3 mb-3 rounded-2xl">
           <Link href="/privacy" className="text-[11px] text-text-muted hover:text-text-secondary transition-colors">
             Privacy Policy
           </Link>

@@ -1,5 +1,5 @@
 import './globals.css'
-import { Inter } from 'next/font/google'
+import { Barlow_Condensed, Inter } from 'next/font/google'
 import { Providers } from './providers'
 import { AppShell } from '@/components/layout/AppShell'
 import { Toaster } from '@/components/ui/Toaster'
@@ -7,6 +7,14 @@ import { Toaster } from '@/components/ui/Toaster'
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
+  display: 'swap',
+  preload: false,
+})
+
+const display = Barlow_Condensed({
+  subsets: ['latin'],
+  weight: ['600', '700', '800'],
+  variable: '--font-display',
   display: 'swap',
   preload: false,
 })
@@ -21,12 +29,12 @@ const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem('dfs_edge_theme
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable} ${display.variable}`} suppressHydrationWarning>
       <head>
         {/* Anti-FOUC: apply stored theme class before first paint */}
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
-      <body className={inter.variable}>
+      <body className={`${inter.variable} ${display.variable}`}>
         <Providers>
           <AppShell>{children}</AppShell>
           <Toaster />

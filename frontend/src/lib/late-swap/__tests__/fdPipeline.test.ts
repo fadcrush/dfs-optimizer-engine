@@ -222,7 +222,8 @@ describe('importFanDuelEntriesSelfContained', () => {
 
   test('auto-locks imported FD players when embedded game times are already started', () => {
     const realNow = Date.now
-    Date.now = () => new Date('2026-01-10T00:00:00.000Z').valueOf()
+    // 2 AM UTC Jan 10 = well past 7:30 PM ET Jan 9 (00:35 UTC Jan 10 with 5-min buffer)
+    Date.now = () => new Date('2026-01-10T02:00:00.000Z').valueOf()
     try {
       const { lineups, lockedByGameTime } = importFanDuelEntriesSelfContained(FD_SELF_CONTAINED_TEMPLATE)
       expect(lockedByGameTime).toEqual(expect.arrayContaining(['Trae Young', 'Brook Lopez']))
@@ -238,7 +239,7 @@ describe('importFanDuelEntriesSelfContained', () => {
     expect(lineups).toHaveLength(1)
     expect(lockedByGameTime).toEqual([])
     expect(warnings).toContain(
-      'Could not infer FanDuel game start times from this entry template, so started-player auto-lock did not run. Review Locked Players manually.',
+      'Could not infer FanDuel game start times from this entry template — started-player auto-lock did not run. Use the Player Controls to manually mark out/scratched players (❌) before running Batch Swap.',
     )
   })
 })

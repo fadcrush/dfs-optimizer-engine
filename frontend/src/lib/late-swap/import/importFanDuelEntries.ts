@@ -213,6 +213,19 @@ export interface ImportFDSelfContainedResult {
   idToNameMap: Map<string, string>
   /** Imported lineup players whose games have already started. */
   lockedByGameTime: string[]
+  /**
+   * Raw FD matchup string for each composite player ID (e.g. "ATL@DEN").
+   * Available even when game times can't be parsed from the CSV — allows the
+   * caller to enrich with a backend game schedule and apply auto-lock there.
+   */
+  playerMatchups: Map<string, string>
+  /**
+   * The contest/slate date parsed from the Contest Name column.
+   * null when the contest name contains no recognisable date.
+   * Can be combined with time-only strings (e.g. "7:30 PM ET") from an
+   * external schedule API to construct a full UTC game start time.
+   */
+  contestSlateDate: Date | null
 }
 
 function parseContestDate(contestName: string): Date | null {
@@ -220,6 +233,20 @@ function parseContestDate(contestName: string): Date | null {
   if (slashMatch) {
     const [, month, day, year] = slashMatch
     return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12, 0, 0))
+  }
+
+  // MM/DD without year — common in FD contest name columns (e.g. "Thu 03/22")
+  const shortSlashMatch = contestName.match(/(\d{1,2})\/(\d{1,2})(?!\/)/)
+  if (shortSlashMatch) {
+    const month = Number(shortSlashMatch[1])
+    const day = Number(shortSlashMatch[2])
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const now = new Date(Date.now())
+      let year = now.getUTCFullYear()
+      if (month >= 10 && now.getUTCMonth() <= 1) year -= 1
+      if (month <= 2 && now.getUTCMonth() >= 10) year += 1
+      return new Date(Date.UTC(year, month - 1, day, 12, 0, 0))
+    }
   }
 
   const monthMatch = contestName.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b\s+(\d{1,2})(?:\b|,)?/i)
@@ -279,7 +306,8 @@ function etLocalToUTC(
 }
 
 function parseFDGameTime(gameText: string, fallbackDate: Date | null): Date | null {
-  const withDate = gameText.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(AM|PM)\s+ET/i)
+  // Allow optional space between minutes and AM/PM (e.g. "7:30PM ET" or "7:30 PM ET")
+  const withDate = gameText.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)\s+ET/i)
   if (withDate) {
     const [, month, day, year, hourText, minuteText, ampm] = withDate
     let hour = Number(hourText)
@@ -288,7 +316,7 @@ function parseFDGameTime(gameText: string, fallbackDate: Date | null): Date | nu
     return etLocalToUTC(Number(year), Number(month) - 1, Number(day), hour, Number(minuteText))
   }
 
-  const timeOnly = gameText.match(/(\d{1,2}):(\d{2})(AM|PM)\s+ET/i)
+  const timeOnly = gameText.match(/(\d{1,2}):(\d{2})\s*(AM|PM)\s+ET/i)
   if (!timeOnly || !fallbackDate) return null
 
   const [, hourText, minuteText, ampm] = timeOnly
@@ -446,7 +474,7 @@ export function importFanDuelEntriesSelfContained(csvText: string): ImportFDSelf
   if (lineups.length > 0 && importedLineupIds.size > 0) {
     if (importedWithParseableTimes === 0) {
       warnings.push(
-        'Could not infer FanDuel game start times from this entry template, so started-player auto-lock did not run. Review Locked Players manually.',
+        'Could not infer FanDuel game start times from this entry template — started-player auto-lock did not run. Use the Player Controls to manually mark out/scratched players (❌) before running Batch Swap.',
       )
     } else if (importedWithoutParseableTimes > 0) {
       warnings.push(
@@ -459,7 +487,7 @@ export function importFanDuelEntriesSelfContained(csvText: string): ImportFDSelf
     .map(id => idToName.get(id) ?? '')
     .filter(name => name && allLineupPlayers.has(name.toLowerCase()))
 
-  return { lineups, warnings, nameToIdMap: nameToId, idToNameMap: idToName, lockedByGameTime }
+  return { lineups, warnings, nameToIdMap: nameToId, idToNameMap: idToName, lockedByGameTime, playerMatchups: gameById, contestSlateDate: slateDate }
 }
 
 // ---------------------------------------------------------------------------

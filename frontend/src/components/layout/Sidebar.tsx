@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, Database, BarChart2, Zap, TrendingUp,
   Shuffle, ArrowLeftRight, LineChart, Activity, CreditCard,
-  ChevronLeft, Bell, Moon, Sun, Menu, Search, Settings, LogOut, Shield,
+  ChevronLeft, Bell, Moon, Sun, Menu, Search, Settings, LogOut, Shield, AlertTriangle,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useClock } from '@/hooks/useClock'
@@ -14,17 +14,19 @@ import { GlobalSearch } from './GlobalSearch'
 import { AUTH_SESSION_EVENT, clearAuthSession, getStoredUser, type StoredUser } from '@/lib/auth'
 
 const NAV_ITEMS = [
-  { href: '/',            label: 'Dashboard',   icon: LayoutDashboard },
-  { href: '/slates',      label: 'Slates',      icon: Database },
-  { href: '/projections', label: 'Projections', icon: BarChart2 },
-  { href: '/optimizer',   label: 'Optimizer',   icon: Zap },
-  { href: '/ev-modeling', label: 'EV Modeling', icon: TrendingUp },
-  { href: '/simulation',  label: 'Simulation',  icon: Shuffle },
-  { href: '/late-swap',   label: 'Late Swap',   icon: ArrowLeftRight },
-  { href: '/analytics',   label: 'Analytics',   icon: LineChart },
-  { href: '/metrics',     label: 'Metrics',     icon: Activity },
-  { href: '/settings',    label: 'Settings',    icon: Settings },
-  { href: '/billing',     label: 'Billing',     icon: CreditCard },
+  { href: '/',              label: 'Dashboard',     icon: LayoutDashboard },
+  { href: '/slates',        label: 'Slates',        icon: Database },
+  { href: '/projections',   label: 'Projections',   icon: BarChart2 },
+  { href: '/optimizer',     label: 'Optimizer',     icon: Zap },
+  { href: '/ev-modeling',   label: 'EV Modeling',   icon: TrendingUp },
+  { href: '/simulation',    label: 'Simulation',    icon: Shuffle },
+  { href: '/late-swap',     label: 'Late Swap',     icon: ArrowLeftRight },
+  { href: '/injuries',      label: 'Injuries',      icon: AlertTriangle },
+  { href: '/player-trends', label: 'Player Trends', icon: LineChart },
+  { href: '/analytics',     label: 'Analytics',     icon: BarChart2 },
+  { href: '/metrics',       label: 'Metrics',       icon: Activity },
+  { href: '/settings',      label: 'Settings',      icon: Settings },
+  { href: '/billing',       label: 'Billing',       icon: CreditCard },
 ]
 
 export function Sidebar({
@@ -85,17 +87,20 @@ export function Sidebar({
     <>
       <aside
         className={cn(
-          'fixed top-0 left-0 h-full z-50 flex flex-col bg-surface-overlay border-r border-surface-border',
+          'fixed top-0 left-0 h-full z-50 flex flex-col glass-panel-strong border-r border-surface-border',
           'transition-[width] duration-200 overflow-hidden',
           collapsed ? 'w-16' : 'w-60',
         )}
       >
         {/* Brand + collapse toggle */}
-        <div className="flex items-center justify-between h-14 px-3 border-b border-surface-border shrink-0">
+        <div className="flex items-center justify-between h-16 px-3 border-b border-surface-border shrink-0">
           {!collapsed && (
-            <span className="text-sm font-bold text-primary tracking-tight select-none">
+            <div>
+              <div className="section-label text-[#f4b540] mb-1">DFS Edge</div>
+              <span className="display-title text-lg leading-none text-text-primary tracking-tight select-none">
               DFS Edge Pro
-            </span>
+              </span>
+            </div>
           )}
           <button
             onClick={onToggle}
@@ -120,7 +125,7 @@ export function Sidebar({
             <button
               onClick={() => setSearchOpen(true)}
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-text-muted
-                bg-surface-raised border border-surface-border hover:border-primary/40 transition-colors"
+                glass-strip hover:border-primary/40 transition-colors"
             >
               <Search className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
               <span className="flex-1 text-left">Search...</span>
@@ -141,8 +146,8 @@ export function Sidebar({
                 title={collapsed ? label : undefined}
                 className={cn(
                   'flex items-center gap-3 mx-2 px-2.5 py-2 rounded-md text-sm font-medium transition-colors duration-100',
-                  'hover:bg-surface-raised hover:text-text-primary',
-                  active ? 'bg-primary-muted text-primary' : 'text-text-secondary',
+                  'hover:bg-white/[0.04] hover:text-text-primary',
+                  active ? 'bg-[#4d3a13] text-[#f4b540] border border-[#f4b540]/20' : 'text-text-secondary',
                   collapsed && 'justify-center px-0',
                 )}
               >
@@ -158,8 +163,8 @@ export function Sidebar({
               title={collapsed ? 'Admin' : undefined}
               className={cn(
                 'flex items-center gap-3 mx-2 px-2.5 py-2 rounded-md text-sm font-medium transition-colors duration-100',
-                'hover:bg-surface-raised hover:text-text-primary',
-                path.startsWith('/admin') ? 'bg-primary-muted text-primary' : 'text-text-secondary',
+                'hover:bg-white/[0.04] hover:text-text-primary',
+                path.startsWith('/admin') ? 'bg-[#4d3a13] text-[#f4b540] border border-[#f4b540]/20' : 'text-text-secondary',
                 collapsed && 'justify-center px-0',
               )}
             >
@@ -170,7 +175,7 @@ export function Sidebar({
         </nav>
 
         {/* Footer: clock + theme + notifications + avatar */}
-        <div className="px-3 py-3 border-t border-surface-border shrink-0 flex flex-col gap-2">
+        <div className="px-3 py-3 border-t border-surface-border shrink-0 flex flex-col gap-2 bg-[rgba(7,14,24,0.28)]">
           {!collapsed && clock && (
             <span className="text-[10px] text-text-muted text-center block select-none">
               {clock}
@@ -197,7 +202,7 @@ export function Sidebar({
                 onClick={handleSignOut}
                 title={`Signed in as ${userLabel} — click to sign out`}
                 aria-label={`Signed in as ${userLabel}. Click to sign out.`}
-                className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white shrink-0 select-none hover:bg-danger transition-colors group"
+                className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-[#101722] shrink-0 select-none hover:bg-danger hover:text-white transition-colors group"
               >
                 <span className="group-hover:hidden">{userInitial}</span>
                 <LogOut className="w-3.5 h-3.5 hidden group-hover:block" aria-hidden="true" />
