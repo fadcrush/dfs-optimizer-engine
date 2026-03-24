@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 
 _last_injury_refresh: float = 0.0
 _INJURY_COOLDOWN_SECS: float = 300.0  # skip if a refresh ran within the last 5 minutes
+_INJURY_COOLDOWN_LOCK: threading.Lock = threading.Lock()
 
 
 def _trigger_injury_refresh() -> None:
@@ -27,14 +28,15 @@ def _trigger_injury_refresh() -> None:
     serialize any concurrent calls, but this avoids stacking up threads.
     """
     global _last_injury_refresh
-    elapsed = time.time() - _last_injury_refresh
-    if elapsed < _INJURY_COOLDOWN_SECS:
-        log.info(
-            "[file_service] Injury refresh skipped – last refresh %.0fs ago (cooldown=%.0fs)",
-            elapsed, _INJURY_COOLDOWN_SECS,
-        )
-        return
-    _last_injury_refresh = time.time()
+    with _INJURY_COOLDOWN_LOCK:
+        elapsed = time.time() - _last_injury_refresh
+        if elapsed < _INJURY_COOLDOWN_SECS:
+            log.info(
+                "[file_service] Injury refresh skipped – last refresh %.0fs ago (cooldown=%.0fs)",
+                elapsed, _INJURY_COOLDOWN_SECS,
+            )
+            return
+        _last_injury_refresh = time.time()
     try:
         from workers.schedulers.daily import job_refresh_injuries
         job_refresh_injuries()
