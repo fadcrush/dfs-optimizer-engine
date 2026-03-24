@@ -37,12 +37,7 @@ def _auto_refresh_injuries() -> None:
     """
     try:
         from pathlib import Path as _Path
-        import sys as _sys
-        # ensure scripts/ is importable
-        _scripts = _Path(__file__).resolve().parent.parent.parent / "scripts"
-        if str(_scripts) not in _sys.path:
-            _sys.path.insert(0, str(_scripts))
-        from fetch_nba_injuries import ensure_current, DB_PATH
+        from scripts.jobs.fetch_nba_injuries import ensure_current, DB_PATH
         result = ensure_current(db_path=DB_PATH)
         if result["status"] == "current":
             log.info("Injuries ✅ already current — %s", result["message"])

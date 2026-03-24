@@ -529,7 +529,7 @@ class CanonicalNBAProjectionEngine:
             else:
                 try:
                     from analysis.shared.vegas_enricher import _fetch_team_totals  # noqa: PLC0415
-                    vegas_totals = _fetch_team_totals("NBA")
+                    vegas_totals, _ = _fetch_team_totals("NBA")
                 except Exception as exc:
                     log.debug("Blowout: Vegas fetch failed: %s", exc)
 
@@ -578,7 +578,7 @@ class CanonicalNBAProjectionEngine:
             else:
                 try:
                     from analysis.shared.vegas_enricher import _fetch_team_totals  # noqa: PLC0415
-                    gt_vegas = _fetch_team_totals("NBA")
+                    gt_vegas, _ = _fetch_team_totals("NBA")
                 except Exception as exc:
                     log.debug("GameTotal: Vegas fetch failed: %s", exc)
 
