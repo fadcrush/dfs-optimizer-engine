@@ -187,7 +187,7 @@ def job_ingest_game_logs() -> None:
     try:
         import subprocess, sys
         result = subprocess.run(
-            [sys.executable, str(_ROOT / "scripts" / "ingest_game_logs.py"), "--days", "3"],
+            [sys.executable, str(_ROOT / "scripts" / "jobs" / "ingest_game_logs.py"), "--days", "3"],
             capture_output=True, text=True, timeout=300,
         )
         if result.returncode == 0:
