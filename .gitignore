@@ -54,4 +54,4 @@ outputs/
 
 # Local tool settings
 .claude/
-raw/
+raw/CLAUDE_AUDIT_EXPORT.txt
