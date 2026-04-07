@@ -18,5 +18,10 @@ for dir in \
     chmod 777 "$dir"
 done
 
-# Drop to the non-root appuser and exec the server
+# Drop to the non-root appuser and exec the server.
+# When SERVICE_TYPE=worker (Render Celery service) run Celery instead of
+# the default CMD (uvicorn). This avoids needing a separate Dockerfile.
+if [ "${SERVICE_TYPE}" = "worker" ]; then
+    exec gosu appuser celery -A celery_app worker --loglevel=info --concurrency=2
+fi
 exec gosu appuser "$@"

@@ -67,24 +67,12 @@ RUN chmod +x /entrypoint.sh
 
 WORKDIR /app/backend
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Final target: api — FastAPI web service
-# ─────────────────────────────────────────────────────────────────────────────
-FROM runtime AS api
-
 EXPOSE 8000
 
 ENTRYPOINT ["/entrypoint.sh"]
 # Default to 1 worker — DuckDB does not support multiple writer processes
 # on the same file.  FastAPI is async; 1 worker handles thousands of concurrent
 # requests.  Override with UVICORN_WORKERS env var if you switch to Postgres.
+# Set SERVICE_TYPE=worker in env to run Celery instead of uvicorn.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", \
     "--workers", "1", "--timeout-keep-alive", "75"]
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Final target: worker — Celery background task worker
-# ─────────────────────────────────────────────────────────────────────────────
-FROM runtime AS worker
-
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["celery", "-A", "celery_app", "worker", "--loglevel=info", "--concurrency=2"]

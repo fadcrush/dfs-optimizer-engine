@@ -17,7 +17,6 @@ services:
     name: dfs-edge-api
     runtime: docker
     dockerfilePath: ./infra/docker/Dockerfile.backend
-    dockerfileTarget: api
     dockerContext: .
     healthCheckPath: /health
     autoDeploy: true
@@ -67,11 +66,12 @@ services:
     name: dfs-edge-worker
     runtime: docker
     dockerfilePath: ./infra/docker/Dockerfile.backend
-    dockerfileTarget: worker
     dockerContext: .
     autoDeploy: true
     plan: starter
     envVars:
+      - key: SERVICE_TYPE
+        value: worker
       - key: PYTHONPATH
         value: /app
       - key: CELERY_BROKER_URL
