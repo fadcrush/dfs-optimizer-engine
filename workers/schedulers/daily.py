@@ -85,7 +85,9 @@ def job_purge_cache() -> None:
     try:
         from analysis.core.projection_cache import get_cache
         n = get_cache().purge_expired()
-        log.info("[scheduler] Purged %d expired cache entries", n)
+        # Redis handles TTL natively so purge_expired() returns 0 when using Redis;
+        # it only returns a non-zero count when falling back to DuckDB.
+        log.info("[scheduler] Cache purge complete — %d DuckDB entries removed (Redis handles TTL natively)", n)
     except Exception as exc:
         log.error("[scheduler] job_purge_cache failed: %s", exc)
 
@@ -94,11 +96,12 @@ def job_refresh_vegas() -> None:
     """Pull fresh Vegas lines and store enriched odds for today's games."""
     log.info("[scheduler] job_refresh_vegas starting")
     try:
-        from analysis.shared.vegas_enricher import TheOddsAPIClient  # type: ignore[attr-defined]
-        from analysis.shared.api_clients import TheOddsAPIClient as Client
-        client = Client()
-        odds = client.get_nba_odds()
-        log.info("[scheduler] Vegas refresh — %d games fetched", len(odds) if odds else 0)
+        from analysis.shared.vegas_enricher import _fetch_team_totals
+        totals, game_count = _fetch_team_totals("NBA")
+        log.info(
+            "[scheduler] Vegas refresh — %d games fetched, %d teams enriched",
+            game_count, len(totals),
+        )
     except Exception as exc:
         log.error("[scheduler] job_refresh_vegas failed: %s", exc)
 

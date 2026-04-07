@@ -27,6 +27,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional
@@ -37,11 +38,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 # ── Logging ────────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-7s  %(message)s",
-    datefmt="%H:%M:%S",
-)
+# Guard prevents adding a duplicate handler when this module is imported by the
+# scheduler (which already calls logging.basicConfig via main.py).
+if not logging.root.handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s  %(levelname)-7s  %(message)s",
+        datefmt="%H:%M:%S",
+    )
 log = logging.getLogger("fetch_nba_injuries")
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -136,6 +140,10 @@ HEADERS = {
 }
 
 DB_PATH = ROOT / "data" / "nba_news.duckdb"
+
+# Serializes concurrent ensure_current() callers (scheduler + pipeline + API)
+# so only one thread downloads/parses/writes at a time.
+_ENSURE_LOCK = threading.Lock()
 
 
 # ── Name helpers ───────────────────────────────────────────────────────────────
@@ -302,37 +310,49 @@ def ensure_current(
         log.info("Injury data already current — skipping fetch (%s)", pdf_url.split('/')[-1])
         return result
 
-    reason = "forced" if force else f"new PDF available ({pdf_url.split('/')[-1]})"
-    log.info("Fetching injury report: %s", reason)
+    # Serialize concurrent callers (scheduler + pipeline + API may all race here).
+    # After acquiring the lock, re-check — a concurrent caller may have already
+    # downloaded and written the same PDF while we were waiting.
+    with _ENSURE_LOCK:
+        db_url_recheck = get_latest_db_url(_db)
+        if not force and db_url_recheck == pdf_url:
+            result["status"] = "current"
+            result["db_url"] = db_url_recheck
+            result["message"] = f"Already up to date (post-lock recheck): {pdf_url.split('/')[-1]}"
+            log.info("Injury data already current (post-lock recheck) — skipping fetch (%s)", pdf_url.split('/')[-1])
+            return result
 
-    # Step 3 – download + parse
-    try:
-        pdf_bytes = download_pdf(pdf_url)
-    except Exception as exc:
-        result["message"] = f"Failed to download PDF: {exc}"
-        log.error(result["message"])
-        return result
+        reason = "forced" if force else f"new PDF available ({pdf_url.split('/')[-1]})"
+        log.info("Fetching injury report: %s", reason)
 
-    records = parse_pdf(pdf_bytes, pdf_url)
-    if not records:
-        result["message"] = "PDF parsed but no records extracted"
-        log.warning(result["message"])
-        return result
+        # Step 3 – download + parse
+        try:
+            pdf_bytes = download_pdf(pdf_url)
+        except Exception as exc:
+            result["message"] = f"Failed to download PDF: {exc}"
+            log.error(result["message"])
+            return result
 
-    if print_report:
-        print_injury_report(records)
+        records = parse_pdf(pdf_bytes, pdf_url)
+        if not records:
+            result["message"] = "PDF parsed but no records extracted"
+            log.warning(result["message"])
+            return result
 
-    # Step 4 – write to DB
-    try:
-        _db.parent.mkdir(parents=True, exist_ok=True)
-        n = write_to_db(records, _db, pdf_url)
-        result["status"] = "updated"
-        result["records"] = n
-        result["message"] = f"Updated: {n} records from {pdf_url.split('/')[-1]}"
-        log.info(result["message"])
-    except Exception as exc:
-        result["message"] = f"DB write failed: {exc}"
-        log.error(result["message"])
+        if print_report:
+            print_injury_report(records)
+
+        # Step 4 – write to DB
+        try:
+            _db.parent.mkdir(parents=True, exist_ok=True)
+            n = write_to_db(records, _db, pdf_url)
+            result["status"] = "updated"
+            result["records"] = n
+            result["message"] = f"Updated: {n} records from {pdf_url.split('/')[-1]}"
+            log.info(result["message"])
+        except Exception as exc:
+            result["message"] = f"DB write failed: {exc}"
+            log.error(result["message"])
 
     return result
 

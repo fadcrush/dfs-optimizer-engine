@@ -31,7 +31,9 @@ DB_PATH = ROOT / "data" / "contest_results.duckdb"
 PROCESSED_DIR = ROOT / "data" / "uploads" / "contests" / "processed"
 
 log = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+# Guard prevents adding a duplicate handler when this module is imported by the scheduler.
+if not logging.root.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
 # ── Schema ────────────────────────────────────────────────────────────────────

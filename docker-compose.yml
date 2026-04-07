@@ -24,6 +24,10 @@ services:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
       - DFS_DISABLE_AUTH=1
+      # Docker-internal Redis URL — overrides .env so that backend always finds
+      # the redis service by container name regardless of local .env values.
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
       # Persist DuckDB files across rebuilds
       - ./data:/app/data
@@ -37,6 +41,9 @@ services:
       - ./workers:/app/workers
       - ./scripts:/app/scripts
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
