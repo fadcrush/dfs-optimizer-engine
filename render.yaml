@@ -96,12 +96,12 @@ services:
   # ── Redis ───────────────────────────────────────────────────────────────────
   - type: redis
     name: dfs-edge-redis
-    plan: starter
+    plan: free
     maxmemoryPolicy: allkeys-lru
     ipAllowList: []
 
 databases:
   - name: dfs-edge-db
-    plan: starter
+    plan: free
     databaseName: dfs_edge
     user: dfs_edge
