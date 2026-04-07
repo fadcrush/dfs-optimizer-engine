@@ -62,8 +62,12 @@ SplitDict = dict[str, Any]
 # ---------------------------------------------------------------------------
 
 def _edge():
-    """Return per-process read-only DuckDB connection for dfs_edge."""
-    return _get_conn(_EDGE_DB, db_key="dfs_edge", read_only=True)
+    """Return the shared process-level connection for dfs_edge.duckdb.
+
+    Keep the connection mode aligned with the rest of the backend so trend
+    reads do not conflict with projection/health routes that use the same DB.
+    """
+    return _get_conn(_EDGE_DB, db_key="dfs_edge", read_only=False)
 
 
 # ---------------------------------------------------------------------------

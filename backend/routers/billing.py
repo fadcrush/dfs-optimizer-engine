@@ -181,39 +181,39 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     Receive and verify Stripe webhook events.
 
     Handles:
-    - ``checkout.session.completed``    → activate Pro tier
-    - ``customer.subscription.deleted`` → downgrade to free
-    - ``invoice.payment_failed``        → mark subscription as past_due
+    - ``checkout.session.completed``      → activate Pro tier
+    - ``customer.subscription.updated``   → sync status on renewal / payment recovery
+    - ``customer.subscription.deleted``   → downgrade to free
+    - ``invoice.paid``                    → confirm active on successful renewal
+    - ``invoice.payment_failed``          → mark subscription as past_due
     """
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
 
     if not _WEBHOOK_SECRET:
-        log.warning("STRIPE_WEBHOOK_SECRET not set — skipping signature verification")
-        try:
-            event = stripe.Event.construct_from(
-                stripe.util.convert_to_stripe_object(
-                    stripe.util.json.loads(payload), stripe.api_key, None
-                ),
-                stripe.api_key,
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Invalid payload: {exc}")
-    else:
-        try:
-            event = stripe.Webhook.construct_event(payload, sig, _WEBHOOK_SECRET)
-        except stripe.SignatureVerificationError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
-        except Exception as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook not configured (STRIPE_WEBHOOK_SECRET missing).",
+        )
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, _WEBHOOK_SECRET)
+    except stripe.SignatureVerificationError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     event_type = event["type"]
     data = event["data"]["object"]
 
     if event_type == "checkout.session.completed":
         _handle_checkout_completed(data, db)
+    elif event_type == "customer.subscription.updated":
+        _handle_subscription_updated(data, db)
     elif event_type == "customer.subscription.deleted":
         _handle_subscription_deleted(data, db)
+    elif event_type == "invoice.paid":
+        _handle_invoice_paid(data, db)
     elif event_type == "invoice.payment_failed":
         _handle_payment_failed(data, db)
     else:
@@ -258,6 +258,59 @@ def _handle_subscription_deleted(subscription_obj, db: Session) -> None:
     user.stripe_subscription_id = None
     db.commit()
     log.info("User %s downgraded to free (sub cancelled)", user.id)
+
+
+def _handle_subscription_updated(subscription_obj, db: Session) -> None:
+    """Sync subscription status when Stripe updates it (e.g. payment recovery, plan change)."""
+    sub_id = subscription_obj.get("id")
+    customer_id = subscription_obj.get("customer")
+    stripe_status = subscription_obj.get("status", "")
+
+    user = None
+    if sub_id:
+        user = db.query(User).filter(User.stripe_subscription_id == sub_id).first()
+    if not user and customer_id:
+        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+    if not user:
+        log.warning(
+            "customer.subscription.updated: no user found for customer=%s sub=%s",
+            customer_id, sub_id,
+        )
+        return
+
+    if stripe_status == "active":
+        user.subscription_status = "active"
+        if user.tier == "free":
+            user.tier = "pro"
+    elif stripe_status in ("past_due", "unpaid"):
+        user.subscription_status = "past_due"
+    elif stripe_status in ("canceled", "cancelled"):
+        user.tier = "free"
+        user.subscription_status = "cancelled"
+        user.stripe_subscription_id = None
+    else:
+        log.debug(
+            "customer.subscription.updated: unhandled status %s for user %s",
+            stripe_status, user.id,
+        )
+        return
+
+    db.commit()
+    log.info("customer.subscription.updated: user %s status → %s", user.id, stripe_status)
+
+
+def _handle_invoice_paid(invoice_obj, db: Session) -> None:
+    """Restore active status when a recurring payment succeeds after past_due."""
+    customer_id = invoice_obj.get("customer")
+    if not customer_id:
+        return
+    user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+    if not user:
+        return
+    if user.subscription_status != "active":
+        user.subscription_status = "active"
+        db.commit()
+        log.info("invoice.paid: user %s restored to active", user.id)
 
 
 def _handle_payment_failed(invoice_obj, db: Session) -> None:

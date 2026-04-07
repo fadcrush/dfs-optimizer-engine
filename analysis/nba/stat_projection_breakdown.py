@@ -85,7 +85,7 @@ def _load_rate_windows(db_path: Path) -> pd.DataFrame:
         log.warning("stat_projection_breakdown: DB not found at %s", db_path)
         return pd.DataFrame()
     try:
-        con = get_conn(db_path, read_only=True)
+        con = get_conn(db_path, db_key=db_path.stem, read_only=False)
         return con.execute(_RATE_SQL).fetchdf()
     except Exception as exc:
         log.warning("stat_projection_breakdown: rate query failed: %s", exc)

@@ -146,6 +146,7 @@ export default function ProjectionsPage() {
       Proj: p.projection,
       Floor: p.floor,
       Ceiling: p.ceiling,
+      StdDev: p.std_dev,
       Value: p.value,
       'Own%': p.ownership,
     }))
@@ -335,6 +336,7 @@ export default function ProjectionsPage() {
                     <Th label="Proj" field="projection" />
                     <Th label="Floor" field="floor" />
                     <Th label="Ceiling" field="ceiling" />
+                    <Th label="StdDev" field="std_dev" />
                     <Th label="Value" field="value" />
                     <Th label="Own%" field="ownership" />
                   </tr>
@@ -355,6 +357,7 @@ export default function ProjectionsPage() {
                         <td className={`${tdCls} font-bold text-primary`}>{p.projection.toFixed(1)}</td>
                         <td className={`${tdCls} text-text-muted`}>{p.floor.toFixed(1)}</td>
                         <td className={`${tdCls} text-success`}>{p.ceiling.toFixed(1)}</td>
+                        <td className={`${tdCls} text-text-muted`}>{p.std_dev.toFixed(2)}</td>
                         <td className={tdCls}>
                           <span className={`font-semibold ${tierColor(tier)}`}>
                             {p.value.toFixed(2)}x

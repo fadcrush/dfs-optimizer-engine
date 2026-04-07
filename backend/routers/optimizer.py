@@ -17,6 +17,7 @@ from analysis.nba.optimizer import assign_lineup_slots
 from analysis.nba.pool_filter import PoolFilterConfig
 from services.auth import get_current_user, require_plan
 from services.file_service import get_file_path, save_lineup_file, save_slate_file
+from analysis.core.game_state import compute_game_state
 from services.late_swap_service import (
     resolve_weights,
     rank_normalize,
@@ -637,11 +638,20 @@ async def late_swap(
             return name_to_row[hits[0]], hits[0]
         return None, None
 
+    # Derive backend-canonical started players from slate data and merge with
+    # frontend-supplied locked_players.  This ensures started players are
+    # always excluded from the candidate pool regardless of what the frontend
+    # sends — the backend owns lock-state truth.
+    _gs = compute_game_state(proj_df)
+    _backend_started_lower = {n.lower() for n, s in _gs.items() if s.started_flag}
+
     # Parse inputs
     lineup_names = [n.strip() for n in lineup.split(",") if n.strip()]
     lineup_slot_labels = [label.strip().upper() for label in slot_labels.split(",") if label.strip()]
     scratch_names = [n.strip() for n in scratched.split(",") if n.strip()]
     locked_names_lower = {n.strip().lower() for n in locked_players.split(",") if n.strip()}
+    # Merge frontend locks with backend-derived started players
+    locked_names_lower |= _backend_started_lower
 
     if not lineup_names:
         raise HTTPException(status_code=400, detail="lineup parameter is required")
@@ -973,14 +983,24 @@ async def batch_late_swap(
     scratch_names_lower = {s.strip().lower() for s in scratched.split(",") if s.strip()}
     locked_names_lower = {s.strip().lower() for s in locked_players.split(",") if s.strip()} if locked_players else set()
 
+    import asyncio as _asyncio
+    import functools as _functools
+
     user_id = _user_id(current_user)
     file_info = await save_slate_file(file, user_id=user_id)
     context = ProjectionContext(sport=sport.upper(), site=site.upper())
-    result = run_dfs_pipeline(
-        slate_file_path=file_info["file_path"],
-        context=context,
-        n_lineups=0,
-        apply_filter=apply_filter,
+    # Run the CPU-bound pipeline in a thread so the event loop stays responsive.
+    # skip_injury_refresh=True: injuries were already refreshed when the slate was
+    # uploaded; re-fetching the NBA injury page here adds ~60s of network latency.
+    result = await _asyncio.to_thread(
+        _functools.partial(
+            run_dfs_pipeline,
+            slate_file_path=file_info["file_path"],
+            context=context,
+            n_lineups=0,
+            apply_filter=apply_filter,
+            skip_injury_refresh=True,
+        )
     )
 
     proj_df = result.get("projections_df", pd.DataFrame())
@@ -1017,6 +1037,14 @@ async def batch_late_swap(
 
     has_sim_batch = "Sim_P90" in proj_df.columns
     has_floor_batch = "Sim_P10" in proj_df.columns
+
+    # Derive backend-canonical started players from slate data and merge with
+    # frontend-supplied locked_players.  This ensures started players are
+    # always excluded from the candidate pool regardless of what the frontend
+    # sends — the backend owns lock-state truth.
+    _gs_batch = compute_game_state(proj_df)
+    _backend_started_batch = {n.lower() for n, s in _gs_batch.items() if s.started_flag}
+    locked_names_lower |= _backend_started_batch
 
     # game→teams map for correlation bonuses
     team_col_batch = "Team" if "Team" in proj_df.columns else "TeamAbbrev"

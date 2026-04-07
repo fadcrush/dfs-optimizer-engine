@@ -56,6 +56,11 @@ async def generate_projections(
             projection=projections_df["Proj"].astype(float).round(2),
             floor=projections_df["Floor"].astype(float).round(2),
             ceiling=projections_df["Ceiling"].astype(float).round(2),
+            std_dev=(
+                projections_df["StdDev"].astype(float).round(2)
+                if "StdDev" in projections_df.columns
+                else pd.Series(0.0, index=projections_df.index)
+            ),
             value=projections_df["Value"].astype(float).round(2),
             ownership=projections_df["Own"].astype(float).round(2),
         ).rename(columns={"Name": "name", "Pos": "position", "Team": "team", "Opp": "opponent"})
@@ -79,7 +84,7 @@ async def generate_projections(
                 _pf[_dst] = None
 
         _base_cols = ["dfs_id", "name", "position", "team", "opponent",
-                      "salary", "projection", "floor", "ceiling", "value", "ownership"]
+                      "salary", "projection", "floor", "ceiling", "std_dev", "value", "ownership"]
         _enrich_out = ["min_proj", "minutes_confidence", "stat_proj_pts", "stat_confidence"]
         projections = _pf[_base_cols + _enrich_out].to_dict("records")
 
@@ -113,6 +118,20 @@ async def generate_projections(
         except Exception:
             pass  # silent — accuracy logging must never break the pipeline
 
+        import datetime as _dt_mod
+        _generated_at = _dt_mod.datetime.now(_dt_mod.timezone.utc).isoformat()
+        _cached_at = pipeline_result.get("cached_at")
+        _cache_hit = pipeline_result.get("cache_hit", False)
+        _freshness_secs: int | None = None
+        if _cached_at:
+            try:
+                _ts = _dt_mod.datetime.fromisoformat(_cached_at)
+                _freshness_secs = int(
+                    (_dt_mod.datetime.now(_dt_mod.timezone.utc) - _ts).total_seconds()
+                )
+            except Exception:
+                pass
+
         return {
             "success": True,
             "projections": projections,
@@ -123,6 +142,12 @@ async def generate_projections(
                 "slate_file": Path(slate_file_path).name,
                 "site": site.upper(),
                 "sport": sport.upper(),
+            },
+            "metadata": {
+                "generated_at": _generated_at,
+                "cached_at": _cached_at,
+                "cache_hit": _cache_hit,
+                "data_freshness_seconds": _freshness_secs,
             },
             "algorithm": "Canonical projection engine",
             "user_id": user_id,

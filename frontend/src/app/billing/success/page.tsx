@@ -11,6 +11,7 @@ function BillingSuccessContent() {
   const params = useSearchParams()
   const sessionId = params.get('session_id')
   const [tier, setTier] = useState<string | null>(null)
+  const [timedOut, setTimedOut] = useState(false)
 
   // Fetch billing status to confirm upgrade (Stripe webhook may lag a few seconds)
   useEffect(() => {
@@ -22,8 +23,12 @@ function BillingSuccessContent() {
         return
       }
       attempts++
-      if (attempts < 6) setTimeout(poll, 2000)
-      else setTier('pro') // assume success after 12s
+      if (attempts < 6) {
+        setTimeout(poll, 2000)
+      } else {
+        // Do not assume success — webhook may be delayed or failed.
+        setTimedOut(true)
+      }
     }
     poll()
   }, [sessionId])
@@ -33,12 +38,18 @@ function BillingSuccessContent() {
       <div className="max-w-md w-full bg-surface-raised border border-surface-border rounded-2xl p-8 text-center">
         <CheckCircle className="w-12 h-12 text-success mx-auto mb-4" />
         <h1 className="text-2xl font-extrabold text-text-primary mb-2">
-          {tier ? `Welcome to ${tier.charAt(0).toUpperCase() + tier.slice(1)}!` : 'Processing…'}
+          {tier
+            ? `Welcome to ${tier.charAt(0).toUpperCase() + tier.slice(1)}!`
+            : timedOut
+              ? 'Activating subscription…'
+              : 'Processing…'}
         </h1>
         <p className="text-sm text-text-secondary mb-6">
           {tier
             ? 'Your subscription is active. All Pro features are now unlocked.'
-            : 'Confirming your subscription — this only takes a moment.'}
+            : timedOut
+              ? 'Your payment was received. Subscription activation can take a moment — please refresh to confirm.'
+              : 'Confirming your subscription — this only takes a moment.'}
         </p>
         {tier && (
           <div className="flex flex-col gap-3">
@@ -52,6 +63,14 @@ function BillingSuccessContent() {
               View account settings
             </Link>
           </div>
+        )}
+        {timedOut && !tier && (
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full py-2.5 rounded text-sm font-bold bg-surface-raised border border-surface-border text-text-primary hover:bg-surface-border cursor-pointer transition-colors"
+          >
+            Refresh status
+          </button>
         )}
       </div>
     </div>

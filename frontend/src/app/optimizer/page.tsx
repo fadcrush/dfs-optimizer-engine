@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   runFDOptimizer,
+  runOptimizerAsync,
   runFullPipeline,
   downloadLineups,
   downloadFile,
@@ -11,6 +12,7 @@ import {
   type PipelineSteps,
   type FDLineup,
 } from '@/lib/api'
+import { useTaskStatus } from '@/lib/hooks/useTaskStatus'
 import { formatSalary, formatProjection, cn } from '@/lib/utils'
 import { useLatestSlate } from '@/hooks/useLatestSlate'
 import { SlateSelector } from '@/components/shared/SlateSelector'
@@ -327,6 +329,11 @@ export default function OptimizerPage() {
   const [result, setResult] = useState<FDOptimizerResponse | null>(null)
   const [runParams, setRunParams] = useState<RunParams | null>(null)
 
+  // Async task state — drives useTaskStatus polling
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const taskStatus = useTaskStatus<FDOptimizerResponse>(taskId)
+  const asyncLoading = taskStatus.status === 'queued' || taskStatus.status === 'running'
+
   // Contest mode + stacking
   const [contestMode, setContestMode] = useState<ContestMode>('gpp')
   const [enableStacking, setEnableStacking] = useState(true)
@@ -407,6 +414,18 @@ export default function OptimizerPage() {
     }
   }, [])
 
+  // Sync task result/error into page state when the async optimizer task completes
+  useEffect(() => {
+    if (taskStatus.status === 'done' && taskStatus.result) {
+      setResult(taskStatus.result)
+    } else if (taskStatus.status === 'error') {
+      setError({
+        message: 'Optimizer task failed. Check your inputs and try again.',
+        raw: taskStatus.error ?? undefined,
+      })
+    }
+  }, [taskStatus.status, taskStatus.result, taskStatus.error])
+
   // Sync LockFadeControl → pool: when name list changes, update poolStatus accordingly
   const handleLocksChange = (newLocks: string[]) => {
     const locksSet = new Set(newLocks.map(n => n.toLowerCase()))
@@ -468,6 +487,7 @@ export default function OptimizerPage() {
     setFile(null)
     setResult(null)
     setRunParams(null)
+    setTaskId(null)
 
     if (!selected) return
 
@@ -517,8 +537,9 @@ export default function OptimizerPage() {
     setError(null)
     setPlanGated(false)
     setResult(null)
+    setTaskId(null)
 
-    // Capture run parameters
+    // Capture run parameters for display
     const params: RunParams = {
       numLineups,
       minSalary,
@@ -526,21 +547,43 @@ export default function OptimizerPage() {
       maxExposure: maxExposure / 100,
       numUnique,
       platform: site === 'FD' ? 'FanDuel' : 'DraftKings',
-      contestType: 'small_gpp',
+      contestType: contestMode,
       site,
     }
 
     // ── Derive pool payload ────────────────────────────────────────────────
-    // Merge dashboard excludes with player-pool excludes (union, deduplicated)
-    const poolExcludes    = playerPool.size > 0 ? getPoolExcludedNames(playerPool) : []
-    const projOverrides   = playerPool.size > 0 ? getPoolProjectionOverrides(playerPool) : {}
-    const mergedExcludes  = Array.from(new Set([...excludedPlayers, ...poolExcludes]))
+    const poolExcludes   = playerPool.size > 0 ? getPoolExcludedNames(playerPool) : []
+    const projOverrides  = playerPool.size > 0 ? getPoolProjectionOverrides(playerPool) : {}
+    const mergedExcludes = Array.from(new Set([...excludedPlayers, ...poolExcludes]))
 
     try {
-      // Normalize CSV headers (e.g., FPPG -> Proj) before upload
       const normalizedFile = await normalizeCSVHeaders(file)
 
-      const response = await runFDOptimizer(normalizedFile, {
+      // ── Primary path: async via Celery queue ──────────────────────────────
+      const asyncResp = await runOptimizerAsync(normalizedFile, {
+        numLineups: params.numLineups,
+        maxExposure: params.maxExposure,
+        numUnique,
+        site: params.site,
+        contestType: params.contestType,
+        outTeams: fadedTeams.length > 0 ? fadedTeams : undefined,
+        outPlayers: mergedExcludes.length > 0 ? mergedExcludes : undefined,
+        chalkThreshold: chalkThreshold > 0 ? chalkThreshold : undefined,
+        projectionOverrides: Object.keys(projOverrides).length > 0 ? projOverrides : undefined,
+        lockedPlayers: poolLockNames.length > 0 ? poolLockNames : undefined,
+      })
+
+      if (asyncResp.success && asyncResp.taskId) {
+        // Task queued — useTaskStatus polling takes over from here
+        setRunParams(params)
+        setTaskId(asyncResp.taskId)
+        return
+      }
+
+      if (asyncResp.planGated) { setPlanGated(true); return }
+
+      // ── Fallback: sync run when Celery / Redis is not available (503) ─────
+      const syncResp = await runFDOptimizer(normalizedFile, {
         numLineups: params.numLineups,
         minSalary: params.minSalary,
         maxSalary: params.maxSalary,
@@ -554,17 +597,17 @@ export default function OptimizerPage() {
         lockedPlayers: poolLockNames.length > 0 ? poolLockNames : undefined,
       })
 
-      if (!response.success) {
-        if (response.planGated) { setPlanGated(true); return }
+      if (!syncResp.success) {
+        if (syncResp.planGated) { setPlanGated(true); return }
         setError({
           message: 'Optimization failed. Check your CSV format and try again.',
-          raw: response.error,
+          raw: syncResp.error,
         })
         return
       }
 
-      if (response.data) {
-        setResult(response.data)
+      if (syncResp.data) {
+        setResult(syncResp.data)
         setRunParams(params)
       }
     } catch (err) {
@@ -966,25 +1009,29 @@ export default function OptimizerPage() {
             <div className="flex gap-2.5 items-center flex-wrap">
               <button
                 onClick={handleRunOptimizer}
-                disabled={loading || pipelineLoading || !file || validating}
+                disabled={loading || asyncLoading || pipelineLoading || !file || validating}
                 className="px-5 py-2 rounded text-[15px] font-bold bg-primary text-white border-0 cursor-pointer disabled:opacity-50 hover:bg-primary-hover transition-colors"
               >
                 {loading
-                  ? 'Optimizing…'
-                  : playerPool.size > 0
-                    ? (() => {
-                        const included = Array.from(playerPool.values()).filter(e => e.poolStatus === 'included').length
-                        const excluded = playerPool.size - included
-                        return excluded > 0
-                          ? `Run Optimizer (${included} in pool, ${excluded} OUT)`
-                          : `Run Optimizer (${included} in pool)`
-                      })()
-                    : 'Run Optimizer'
+                  ? 'Submitting…'
+                  : asyncLoading
+                    ? taskStatus.status === 'queued'
+                      ? 'Queued…'
+                      : 'Optimizing…'
+                    : playerPool.size > 0
+                      ? (() => {
+                          const included = Array.from(playerPool.values()).filter(e => e.poolStatus === 'included').length
+                          const excluded = playerPool.size - included
+                          return excluded > 0
+                            ? `Run Optimizer (${included} in pool, ${excluded} OUT)`
+                            : `Run Optimizer (${included} in pool)`
+                        })()
+                      : 'Run Optimizer'
                 }
               </button>
               <button
                 onClick={handleRunFullPipeline}
-                disabled={loading || pipelineLoading || !file || validating}
+                disabled={loading || asyncLoading || pipelineLoading || !file || validating}
                 className="px-5 py-2 rounded text-[15px] font-bold bg-success text-white border-0 cursor-pointer disabled:opacity-60 hover:brightness-110 transition-all"
               >
                 {pipelineLoading ? '⏳ Running Pipeline…' : '⚡ Run Full Pipeline'}
@@ -1018,6 +1065,26 @@ export default function OptimizerPage() {
           />
         )}
 
+        {/* Task progress banner — shown while async optimizer is queued or running */}
+        {asyncLoading && (
+          <div className="bg-surface-raised border border-primary/40 rounded-xl px-4 py-3 mb-4 flex items-center gap-3">
+            <span
+              className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin shrink-0"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="text-sm font-semibold text-text-primary m-0">
+                {taskStatus.status === 'queued' ? 'Optimizer queued…' : 'Generating lineups…'}
+              </p>
+              <p className="text-xs text-text-muted m-0">
+                {taskStatus.status === 'queued'
+                  ? 'Waiting for a background worker to pick up your job.'
+                  : 'Running LP solve and exposure optimization in the background.'}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Plan-gate upgrade banner */}
         {planGated && (
           <div className="bg-warning-muted border border-warning/40 rounded-lg px-4 py-4 mb-5 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -1038,7 +1105,7 @@ export default function OptimizerPage() {
         {error && !planGated && <ErrorDisplay message={error.message} rawError={error.raw} />}
 
         {/* Skeleton while optimizer is running */}
-        {(loading || pipelineLoading) && !result && (
+        {(loading || asyncLoading || pipelineLoading) && !result && (
           <div className="bg-surface-raised border border-surface-border rounded-xl p-4">
             <SkeletonTable rows={10} cols={7} />
           </div>
@@ -1072,7 +1139,7 @@ export default function OptimizerPage() {
         )}
 
         {/* Empty state — no optimizer run yet */}
-        {!loading && !pipelineLoading && !error && result === null && (
+        {!loading && !asyncLoading && !pipelineLoading && !error && result === null && (
           <div className="bg-surface-raised border border-surface-border rounded-xl mt-5">
             <EmptyState
               icon="🏆"

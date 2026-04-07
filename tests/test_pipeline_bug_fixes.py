@@ -65,73 +65,69 @@ class TestNoDuplicateMethods:
 
 
 # ---------------------------------------------------------------------------
-# C3 — _export_projections returns a dict
+# C3 — ProjectionPipeline is deprecated (Phase 3 gate)
+# The old tests for _export_projections / _add_ownership_projections are
+# superseded by the Phase 3 gate contract: these methods are unreachable
+# because __init__ raises RuntimeError before any of them can be called.
 # ---------------------------------------------------------------------------
 
 class TestExportProjectionsReturns:
-    def test_returns_dict(self, tmp_path):
-        """C3: _export_projections must return a dict, not None."""
-        pp = _make_pipeline(tmp_path)
-        df = _sample_projections()
-        result = pp._export_projections(df, "2026-03-19", "FD")
-        assert result is not None, "_export_projections returned None (return statement missing)"
-        assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+    """
+    Phase 3 update: ProjectionPipeline is deprecated.  Tests now verify the
+    deprecation guard rather than the old C3 behaviour (return value of
+    _export_projections).  Canonical export path: run_dfs_pipeline().
+    """
 
-    def test_returns_full_key(self, tmp_path):
-        """C3: returned dict must contain the 'full' output file path."""
-        pp = _make_pipeline(tmp_path)
-        df = _sample_projections()
-        result = pp._export_projections(df, "2026-03-19", "FD")
-        assert "full" in result, f"Expected 'full' key in export result, got keys: {list(result.keys())}"
+    def test_pipeline_init_raises_on_construction(self, tmp_path):
+        """Phase 3 gate: ProjectionPipeline() must raise RuntimeError."""
+        from analysis.nba.projection_pipeline import ProjectionPipeline
+        with pytest.raises(RuntimeError, match="DEPRECATED"):
+            ProjectionPipeline(output_dir=tmp_path)
 
-    def test_full_file_exists(self, tmp_path):
-        """C3: the file referenced by result['full'] must exist on disk."""
-        pp = _make_pipeline(tmp_path)
-        df = _sample_projections()
-        result = pp._export_projections(df, "2026-03-19", "FD")
-        assert Path(result["full"]).exists(), "Full export file was not created"
+    def test_pipeline_raises_without_output_dir(self):
+        """Phase 3 gate: ProjectionPipeline() raises even without args."""
+        from analysis.nba.projection_pipeline import ProjectionPipeline
+        with pytest.raises(RuntimeError, match="DEPRECATED"):
+            ProjectionPipeline()
 
-    def test_upload_key_present(self, tmp_path):
-        """C3: returned dict must also contain 'upload' key."""
-        pp = _make_pipeline(tmp_path)
-        df = _sample_projections()
-        result = pp._export_projections(df, "2026-03-19", "FD")
-        assert "upload" in result, f"Expected 'upload' key in export result, got: {list(result.keys())}"
+    def test_error_message_references_canonical_path(self, tmp_path):
+        """Phase 3 gate: RuntimeError message points to run_dfs_pipeline."""
+        from analysis.nba.projection_pipeline import ProjectionPipeline
+        with pytest.raises(RuntimeError) as exc_info:
+            ProjectionPipeline()
+        assert "run_dfs_pipeline" in str(exc_info.value)
+
+    def test_deprecated_header_in_source(self):
+        """Phase 3 gate: module-level DEPRECATED comment is present."""
+        from analysis.nba import projection_pipeline as mod
+        source = inspect.getsource(mod)
+        assert "DEPRECATED" in source
 
 
 # ---------------------------------------------------------------------------
-# H4 — _add_ownership_projections is called and adds projected_ownership
+# H4 — _add_ownership_projections source-level checks (no instantiation)
 # ---------------------------------------------------------------------------
 
 class TestOwnershipProjectionsCalled:
-    def test_method_exists(self, tmp_path):
-        """H4: _add_ownership_projections must exist on ProjectionPipeline."""
-        pp = _make_pipeline(tmp_path)
-        assert hasattr(pp, "_add_ownership_projections"), "_add_ownership_projections method missing"
+    """
+    Phase 3 update: instance tests removed (ProjectionPipeline is deprecated).
+    Source-inspection tests are retained to verify the source code still
+    references _add_ownership_projections (legacy contract documented).
+    """
 
-    def test_adds_projected_ownership_column(self, tmp_path):
-        """H4: _add_ownership_projections must add projected_ownership column."""
-        pp = _make_pipeline(tmp_path)
-        df = _sample_projections()
-        result = pp._add_ownership_projections(df)
-        assert "projected_ownership" in result.columns
-
-    def test_ownership_bounded(self, tmp_path):
-        """H4: projected_ownership values must be clipped to [1, 50]."""
-        pp = _make_pipeline(tmp_path)
-        df = _sample_projections()
-        result = pp._add_ownership_projections(df)
-        assert result["projected_ownership"].between(1, 50).all(), (
-            f"Ownership out of [1, 50] range: {result['projected_ownership'].tolist()}"
-        )
-
-    def test_run_full_pipeline_calls_ownership(self, tmp_path):
-        """H4: run_full_pipeline source must call _add_ownership_projections."""
+    def test_run_full_pipeline_calls_ownership(self):
+        """H4 (source check): run_full_pipeline source references _add_ownership_projections."""
         from analysis.nba import projection_pipeline as mod
         source = inspect.getsource(mod.ProjectionPipeline.run_full_pipeline)
         assert "_add_ownership_projections" in source, (
-            "run_full_pipeline does not call _add_ownership_projections"
+            "run_full_pipeline does not reference _add_ownership_projections"
         )
+
+    def test_ownership_projections_method_defined_in_source(self):
+        """H4 (source check): _add_ownership_projections method definition is present."""
+        from analysis.nba import projection_pipeline as mod
+        source = inspect.getsource(mod.ProjectionPipeline)
+        assert "def _add_ownership_projections" in source
 
 
 # ---------------------------------------------------------------------------

@@ -188,20 +188,35 @@ def _load_stddev_baseline(
 
     # Build canonical recompute expressions for each site — used as fallback
     # when stored dk_pts/fd_pts is NULL or zero (stale ingestion).
+    # Only reference raw stat columns that actually exist in the table so the
+    # query doesn't fail against minimal test schemas.
+    try:
+        existing_cols = {
+            row[0]
+            for row in get_conn(db_path)
+            .execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'player_game_logs'")
+            .fetchall()
+        }
+    except Exception:
+        existing_cols = set()
+
+    def _col(name: str, default: float = 0.0) -> str:
+        return f"COALESCE({name}, {default})" if name in existing_cols else str(default)
+
     if site.upper() == "DK":
         _recompute = (
-            "COALESCE(points,0)*1.0 + COALESCE(three_pointers,0)*0.5"
-            " + COALESCE(rebounds,0)*1.25 + COALESCE(assists,0)*1.5"
-            " + COALESCE(steals,0)*2.0 + COALESCE(blocks,0)*2.0"
-            " + COALESCE(turnovers,0)*(-0.5)"
+            f"{_col('points')}*1.0 + {_col('three_pointers')}*0.5"
+            f" + {_col('rebounds')}*1.25 + {_col('assists')}*1.5"
+            f" + {_col('steals')}*2.0 + {_col('blocks')}*2.0"
+            f" + {_col('turnovers')}*(-0.5)"
         )
         _stored = "dk_pts"
     else:
         _recompute = (
-            "COALESCE(fg_made,0)*2.0 + COALESCE(ft_made,0)*1.0"
-            " + COALESCE(three_pointers,0)*1.0 + COALESCE(rebounds,0)*1.2"
-            " + COALESCE(assists,0)*1.5 + COALESCE(steals,0)*3.0"
-            " + COALESCE(blocks,0)*3.0 + COALESCE(turnovers,0)*(-1.0)"
+            f"{_col('fg_made')}*2.0 + {_col('ft_made')}*1.0"
+            f" + {_col('three_pointers')}*1.0 + {_col('rebounds')}*1.2"
+            f" + {_col('assists')}*1.5 + {_col('steals')}*3.0"
+            f" + {_col('blocks')}*3.0 + {_col('turnovers')}*(-1.0)"
         )
         _stored = "fd_pts"
 
@@ -449,11 +464,28 @@ class CanonicalNBAProjectionEngine:
         else:
             box_col = pd.Series(0.0, index=df.index)
 
-        # Priority chain (low → high): zero → box_score → gl_avg → base_proj
-        proj_col = box_col.copy()
-        proj_col = proj_col.mask(df["GL_L10"] > 0, df["GL_L10"])   # layer 2 overrides
+        # Priority chain (low → high):
+        #   layer 0: Site_FPPG  — site's own avg, fallback only when we have no data
+        #   layer 3: box_score  — derived from raw stats in the slate
+        #   layer 2: GL_L10     — our rolling 10-game avg (beats site FPPG)
+        #   layer 1: Base_Proj  — user-supplied projection (beats everything)
+        fppg_col = df["Site_FPPG"].fillna(0.0) if "Site_FPPG" in df.columns else pd.Series(0.0, index=df.index)
+        proj_col = fppg_col.copy()                                    # layer 0 base
+        proj_col = proj_col.mask(box_col > 0, box_col)               # layer 3 overrides
+        proj_col = proj_col.mask(df["GL_L10"] > 0, df["GL_L10"])     # layer 2 overrides
         if has_base:
             proj_col = proj_col.mask(base_col > 0, base_col)         # layer 1 overrides all
+
+        # Count how many players fell through to Site_FPPG fallback
+        no_gl = (df["GL_L10"] <= 0) & (box_col <= 0)
+        no_base = (base_col <= 0) if has_base else pd.Series(True, index=df.index)
+        n_fppg_fallback = int(((fppg_col > 0) & no_gl & no_base).sum())
+        if n_fppg_fallback:
+            log.info(
+                "Site_FPPG fallback used for %d players with no game-log history "
+                "(GL_L10=0, no box score) — DvP/B2B adjustments will still apply.",
+                n_fppg_fallback,
+            )
 
         df["Proj"] = proj_col.astype(float)
 

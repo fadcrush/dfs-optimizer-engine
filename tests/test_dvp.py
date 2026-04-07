@@ -153,7 +153,7 @@ class TestLoadDvPByPosition:
             _insert_game_log(bt, name, "BOS", base, 45.0, 40.0)
             _insert_player_position(bt, name, "SF")
 
-        result = load_dvp_by_position(site="DK", db_path=bt.db_path, min_games=5)
+        result = load_dvp_by_position(site="DK", db_path=bt.db_path, min_games=5, lookback_days=90)
         assert "PG" in result
         assert "SF" in result
         assert isinstance(result["PG"], dict)
@@ -187,7 +187,7 @@ class TestLoadDvPByPosition:
             _insert_game_log(bt, f"PG{i+10}", "MIA", base + timedelta(days=i), 20.0, 18.0)
             _insert_player_position(bt, f"PG{i+10}", "PG")
 
-        result = load_dvp_by_position(site="DK", db_path=bt.db_path, min_games=5)
+        result = load_dvp_by_position(site="DK", db_path=bt.db_path, min_games=5, lookback_days=90)
         pg = result.get("PG", {})
         assert pg.get("BOS", 1.0) > pg.get("MIA", 1.0)
 
@@ -214,7 +214,7 @@ class TestLoadDvPByPosition:
             _insert_game_log(bt, f"PG{i+10}", "MIA", base + timedelta(days=i), 50.0, 40.0)
             _insert_player_position(bt, f"PG{i+10}", "PG", site="FD")
 
-        result = load_dvp_by_position(site="FD", db_path=bt.db_path, min_games=5)
+        result = load_dvp_by_position(site="FD", db_path=bt.db_path, min_games=5, lookback_days=90)
         pg = result.get("PG", {})
         # BOS gave up 20 FD pts, MIA gave up 40 — BOS should be tougher
         bos_mult = pg.get("BOS", 1.0)
@@ -242,8 +242,8 @@ class TestLoadDvPByPosition:
             _insert_player_position(bt, f"PG{i+10}", "PG", site="DK")
             _insert_player_position(bt, f"PG{i+10}", "G", site="FD")
 
-        dk_result = load_dvp_by_position(site="DK", db_path=bt.db_path, min_games=5)
-        fd_result = load_dvp_by_position(site="FD", db_path=bt.db_path, min_games=5)
+        dk_result = load_dvp_by_position(site="DK", db_path=bt.db_path, min_games=5, lookback_days=90)
+        fd_result = load_dvp_by_position(site="FD", db_path=bt.db_path, min_games=5, lookback_days=90)
         assert "PG" in dk_result
         assert "G" in fd_result
         assert "PG" not in fd_result  # FD players weren't labelled PG
@@ -327,8 +327,9 @@ class TestProjectionEnginePositionDvP:
 
     def _setup_db_with_positions(self, tmp_path):
         """Create and return a DB path with player_positions and game_logs populated."""
+        from datetime import date as _date
         bt = _bt(tmp_path)
-        base = date(2026, 3, 1)
+        base = _date.today() - timedelta(days=10)
 
         # PGs: BOS allows 50 (soft) vs MIA allows 20 (tough) pts
         for i in range(6):
@@ -404,8 +405,9 @@ class TestProjectionEnginePositionDvP:
 
     def test_falls_back_to_team_level_without_positions(self, tmp_path):
         """When player_positions is empty, team-level DvP is used."""
+        from datetime import date as _date
         bt = _bt(tmp_path)
-        base = date(2026, 3, 1)
+        base = _date.today() - timedelta(days=10)
         # Only game logs, no player_positions
         for i in range(6):
             _insert_game_log(bt, f"Player{i}", "BOS", base + timedelta(days=i), 50.0, 48.0)

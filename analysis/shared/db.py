@@ -434,7 +434,7 @@ _MIGRATIONS: dict[str, list[tuple[int, str, str | _MigrationFn]]] = {
             ALTER TABLE injury_beneficiaries
                 ADD COLUMN IF NOT EXISTS position        VARCHAR(12) DEFAULT '';
             ALTER TABLE injury_beneficiaries
-                ADD COLUMN IF NOT EXISTS reason_codes    JSON DEFAULT '[]';
+                ADD COLUMN IF NOT EXISTS reason_codes    VARCHAR DEFAULT '[]';
             ALTER TABLE player_injury_state
                 ADD COLUMN IF NOT EXISTS position        VARCHAR(12) DEFAULT '';
             ALTER TABLE injury_events

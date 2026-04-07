@@ -42,8 +42,13 @@ except ImportError:
 
 
 def _edge():
-    """Return the per-process read-only singleton for dfs_edge.duckdb."""
-    return _get_conn(_EDGE_DB, db_key="dfs_edge", read_only=True)
+    """Return the shared process-level connection for dfs_edge.duckdb.
+
+    The backend pre-opens dfs_edge as a writable singleton at startup. Reusing
+    that same connection mode everywhere avoids DuckDB's same-file/different-
+    configuration error when a read-only helper is called before a write path.
+    """
+    return _get_conn(_EDGE_DB, db_key="dfs_edge", read_only=False)
 
 
 # Import Postgres session factory — may be None if DATABASE_URL is unset.
@@ -999,7 +1004,7 @@ def get_ownership_model_status() -> dict[str, Any]:
             model_ages[site] = {
                 "exists": True,
                 "trained_at": mtime.isoformat(),
-                "age_days": (_dt.datetime.utcnow() - mtime).days,
+                "age_days": (_dt.datetime.now(_dt.timezone.utc) - mtime.replace(tzinfo=_dt.timezone.utc)).days,
             }
         else:
             model_ages[site] = {"exists": False}

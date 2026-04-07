@@ -27,13 +27,15 @@ def nba_slate():
     )
 
 
-# Mocked team-totals returned by a successful API fetch
-_MOCK_TOTALS = {
+# Mocked team-totals returned by a successful API fetch.
+# _fetch_team_totals returns (dict, int) — tests must mirror that tuple shape.
+_MOCK_TOTALS_DICT = {
     "BOS": {"team_total": 115.5, "spread": -5.5, "is_home": 1, "opp_abbrev": "MIA"},
     "MIA": {"team_total": 106.5, "spread": 5.5,  "is_home": 0, "opp_abbrev": "BOS"},
 }
+_MOCK_TOTALS = (_MOCK_TOTALS_DICT, 1)
 
-_NO_TOTALS: dict = {}
+_NO_TOTALS = ({}, 0)
 
 
 class TestEnrichWithVegas:

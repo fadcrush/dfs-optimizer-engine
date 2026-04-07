@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DFS Edge Pro — Render.com deployment manifest
+#
+# Deploy with:  render up   (requires Render CLI)
+# Or connect your GitHub repo at https://dashboard.render.com
+#
+# Services:
+#   api      — FastAPI web service
+#   worker   — Celery background task worker
+#   redis    — Managed Redis (Render add-on)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── FastAPI backend ─────────────────────────────────────────────────────────
+  - type: web
+    name: dfs-edge-api
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.backend
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    plan: standard
+    envVars:
+      - key: PYTHONPATH
+        value: /app
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: INJURY_DATA_FAIL_MODE
+        value: closed
+      - key: PORT
+        value: "8000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dfs-edge-db
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          name: dfs-edge-redis
+          type: redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          name: dfs-edge-redis
+          type: redis
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: THE_ODDS_API_KEY
+        sync: false
+      - key: SPORTSDATA_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+
+  # ── Celery worker ───────────────────────────────────────────────────────────
+  - type: worker
+    name: dfs-edge-worker
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.backend
+    dockerContext: .
+    startCommand: celery -A celery_app worker --loglevel=info --concurrency=2
+    autoDeploy: true
+    plan: starter
+    envVars:
+      - key: PYTHONPATH
+        value: /app
+      - key: CELERY_BROKER_URL
+        fromService:
+          name: dfs-edge-redis
+          type: redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          name: dfs-edge-redis
+          type: redis
+          property: connectionString
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dfs-edge-db
+          property: connectionString
+      - key: THE_ODDS_API_KEY
+        sync: false
+      - key: SPORTSDATA_API_KEY
+        sync: false
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  - type: redis
+    name: dfs-edge-redis
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
+
+databases:
+  - name: dfs-edge-db
+    plan: starter
+    databaseName: dfs_edge
+    user: dfs_edge

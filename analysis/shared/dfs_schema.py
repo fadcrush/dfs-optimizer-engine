@@ -177,14 +177,17 @@ def normalize_slate_df(raw_df: pd.DataFrame, site: str | None = None) -> tuple[p
     # is the true projection baseline and fires in Layer 2 of the projection engine.
     proj_col = _resolve_column(df, ["my proj", "ss proj", "proj", "projection"])
     # Emit a clear log when DK/FD stock columns are present but intentionally ignored
-    _dk_fd_blocked = [c for c in df.columns if str(c).lower().strip() in (
-        "avgpointspergame", "fppg", "fpts", "points", "fp"
-    )]
-    if _dk_fd_blocked:
+    _dk_fd_fppg_col = next(
+        (c for c in df.columns if str(c).lower().strip() in (
+            "avgpointspergame", "fppg", "fpts", "points", "fp"
+        )), None
+    )
+    if _dk_fd_fppg_col:
         log.info(
-            "PROJECTION GUARD: DK/FD stock columns %s detected and BLOCKED — "
-            "our L10 game-log baseline will be used instead.",
-            _dk_fd_blocked,
+            "PROJECTION GUARD: DK/FD stock column '%s' detected and BLOCKED as primary — "
+            "our L10 game-log baseline will be used instead. "
+            "Storing as Site_FPPG for fallback on players with no game-log history.",
+            _dk_fd_fppg_col,
         )
     own_col = _resolve_column(df, ["my own", "adj own", "own", "ownership"])
     # FanDuel includes an "Injury Indicator" column ("O","Q","GTD","SSPD","NA").
@@ -220,6 +223,9 @@ def normalize_slate_df(raw_df: pd.DataFrame, site: str | None = None) -> tuple[p
     out["Pos"] = df[pos_col].astype(str).str.strip() if pos_col else "UTIL"
     out["Salary"] = _to_float_series(df, salary_col, default=0.0)
     out["Base_Proj"] = _to_float_series(df, proj_col, default=0.0)
+    # Site_FPPG: site's own average — blocked as primary projection but kept as
+    # fallback for players with no game-log history (GL_L10 = 0).
+    out["Site_FPPG"] = _to_float_series(df, _dk_fd_fppg_col, default=0.0) if _dk_fd_fppg_col else pd.Series(0.0, index=df.index)
     out["Own"] = _to_float_series(df, own_col, default=0.0)
 
     # Carry the site's injury indicator forward so pool_filter can hard-gate OUT players

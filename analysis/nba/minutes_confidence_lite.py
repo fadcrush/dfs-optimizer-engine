@@ -193,13 +193,19 @@ def _load_minutes_windows(
         return _empty
 
     try:
-        import duckdb
+        from analysis.shared.db import get_conn
     except ImportError:
-        log.warning("minutes_confidence_lite: duckdb not installed — skipping")
-        return _empty
+        try:
+            import duckdb
+        except ImportError:
+            log.warning("minutes_confidence_lite: duckdb not installed — skipping")
+            return _empty
+
+        def get_conn(path, db_key=None, read_only=False):
+            return duckdb.connect(str(path), read_only=read_only)
 
     try:
-        con = duckdb.connect(str(db_path), read_only=True)
+        con = get_conn(db_path, db_key=db_path.stem, read_only=False)
         sql = """
             WITH ranked AS (
                 SELECT
@@ -254,7 +260,6 @@ def _load_minutes_windows(
             LEFT JOIN l5  USING (player_name)
         """
         df = con.execute(sql).fetchdf()
-        con.close()
         return df
     except Exception as exc:
         log.warning("minutes_confidence_lite: query failed: %s", exc)

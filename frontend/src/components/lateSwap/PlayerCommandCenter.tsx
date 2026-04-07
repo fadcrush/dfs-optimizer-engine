@@ -81,13 +81,16 @@ interface Props {
   statuses: Map<string, PlayerStatus>
   onSetStatus: (name: string, status: PlayerStatus) => void
   onBulkAction: (action: 'lockAllStarted' | 'clearScratches' | 'clearLocks' | 'reset') => void
+  /** Re-fetches injury data and auto-scratches OUT/DOUBTFUL players in current lineups */
+  onRefreshInjuries?: () => Promise<void>
 }
 
-export function PlayerCommandCenter({ players, statuses, onSetStatus, onBulkAction }: Props) {
+export function PlayerCommandCenter({ players, statuses, onSetStatus, onBulkAction, onRefreshInjuries }: Props) {
   const [tab, setTab] = useState<FilterTab>('all')
   const [search, setSearch] = useState('')
   const [focusedName, setFocusedName] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   // Quick counts for tab badges
   const counts = useMemo(
@@ -188,6 +191,20 @@ export function PlayerCommandCenter({ players, statuses, onSetStatus, onBulkActi
 
         {/* Bulk actions */}
         <div className="ml-auto flex gap-1.5 flex-wrap">
+          {onRefreshInjuries && (
+            <button
+              onClick={async () => {
+                setRefreshing(true)
+                await onRefreshInjuries()
+                setRefreshing(false)
+              }}
+              disabled={refreshing}
+              title="Re-fetch injury report and auto-scratch OUT/DOUBTFUL players"
+              className="px-3 py-1.5 rounded-full text-[11px] font-bold cursor-pointer border border-[#fde68a]/20 bg-[#3b2a06] text-[#fde68a] hover:bg-[#4d3a13] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {refreshing ? '⟳ Checking…' : '⟳ Refresh Injuries'}
+            </button>
+          )}
           {counts.started > 0 && (
             <button
               onClick={() => onBulkAction('lockAllStarted')}

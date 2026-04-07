@@ -214,6 +214,13 @@ export interface ImportFDSelfContainedResult {
   /** Imported lineup players whose games have already started. */
   lockedByGameTime: string[]
   /**
+   * True when the CSV contained no parseable game start times.
+   * FD CSVs never include times (only "SAC@CHA" matchup strings), so this is
+   * always true for FD entry templates.  The caller should enrich via the
+   * backend /api/games/today API and strip the game-time warning on success.
+   */
+  gameTimesUnavailable: boolean
+  /**
    * Raw FD matchup string for each composite player ID (e.g. "ATL@DEN").
    * Available even when game times can't be parsed from the CSV — allows the
    * caller to enrich with a backend game schedule and apply auto-lock there.
@@ -363,8 +370,26 @@ export function importFanDuelEntriesSelfContained(csvText: string): ImportFDSelf
 
   const poolIdCol = findColumnIndex(['id'], FD_POOL_ID_COL, 13)
   const poolNameCol = findColumnIndex(['nickname'], FD_POOL_NAME_COL, 13)
-  const poolGameCol = findColumnIndex(['game', 'game info'], -1, 13)
+  let poolGameCol = findColumnIndex(['game', 'game info'], -1, 13)
   const contestNameCol = findColumnIndex(['contest name'], 2)
+
+  // FD entry templates keep their pool-section column names in a DATA row, not in
+  // the main header (row 0 only has ~15 entry-section headers).  If the main header
+  // didn't reveal the Game column, scan the first 20 rows for the embedded pool
+  // header row (col 14 = "Player ID + Player Name") and derive the column index there.
+  if (poolGameCol === -1) {
+    // FD templates pad out ALL contest entry slots before the pool section, so the
+    // embedded pool-header row can be at line 150+ for large contests.  Search all rows.
+    for (let _i = 1; _i < lines.length; _i++) {
+      const _row = parseCSVRow(lines[_i].trim())
+      if (!_row[FD_POOL_NAME_ID_COL]?.trim().toLowerCase().startsWith('player id')) continue
+      const _gameIdx = _row.findIndex(
+        (c, idx) => idx >= 13 && ['game', 'game info'].includes(c.trim().toLowerCase()),
+      )
+      if (_gameIdx >= 0) poolGameCol = _gameIdx
+      break
+    }
+  }
 
   let slateDate: Date | null = null
   for (let i = 1; i < lines.length; i++) {
@@ -469,25 +494,19 @@ export function importFanDuelEntriesSelfContained(csvText: string): ImportFDSelf
   }
 
   const importedWithParseableTimes = [...importedLineupIds].filter(id => parseableGameTimeIds.has(id)).length
-  const importedWithoutParseableTimes = importedLineupIds.size - importedWithParseableTimes
+  const gameTimesUnavailableFlag = importedWithParseableTimes === 0 && importedLineupIds.size > 0
 
-  if (lineups.length > 0 && importedLineupIds.size > 0) {
-    if (importedWithParseableTimes === 0) {
-      warnings.push(
-        'Could not infer FanDuel game start times from this entry template — started-player auto-lock did not run. Use the Player Controls to manually mark out/scratched players (❌) before running Batch Swap.',
-      )
-    } else if (importedWithoutParseableTimes > 0) {
-      warnings.push(
-        `Could only infer FanDuel game start times for ${importedWithParseableTimes} of ${importedLineupIds.size} imported players. Review Locked Players manually for the rest.`,
-      )
-    }
+  if (gameTimesUnavailableFlag) {
+    warnings.push(
+      'Could not infer FanDuel game start times from this entry template \u2014 started-player auto-lock did not run. Use the Player Controls to manually mark out/scratched players (\u274c) before running Batch Swap.',
+    )
   }
 
   const lockedByGameTime = [...autoLockedIds]
     .map(id => idToName.get(id) ?? '')
     .filter(name => name && allLineupPlayers.has(name.toLowerCase()))
 
-  return { lineups, warnings, nameToIdMap: nameToId, idToNameMap: idToName, lockedByGameTime, playerMatchups: gameById, contestSlateDate: slateDate }
+  return { lineups, warnings, nameToIdMap: nameToId, idToNameMap: idToName, lockedByGameTime, playerMatchups: gameById, contestSlateDate: slateDate, gameTimesUnavailable: gameTimesUnavailableFlag }
 }
 
 // ---------------------------------------------------------------------------

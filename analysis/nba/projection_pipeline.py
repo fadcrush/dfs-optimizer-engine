@@ -33,13 +33,19 @@ logger = logging.getLogger(__name__)
 
 class ProjectionPipeline:
     """
-    Complete projection pipeline
-    Fetches data -> Generates projections -> Validates -> Exports
+    DEPRECATED — Phase 3 gate.  Use analysis.core.orchestrator.run_dfs_pipeline().
+    Instantiating this class raises RuntimeError to prevent silent bypass of the
+    canonical projection engine.
     """
-    
+
     def __init__(self, output_dir: Optional[Path] = None):
-        self.aggregator = NBADataAggregator()
-        self.engine = NBAProjectionEngine()
+        raise RuntimeError(
+            "DEPRECATED: analysis.nba.projection_pipeline.ProjectionPipeline is not "
+            "part of the production pipeline.  Use "
+            "analysis.core.orchestrator.run_dfs_pipeline() instead."
+        )
+        self.aggregator = NBADataAggregator()  # unreachable
+        self.engine = NBAProjectionEngine()    # unreachable
         
         if output_dir:
             self.output_dir = Path(output_dir)

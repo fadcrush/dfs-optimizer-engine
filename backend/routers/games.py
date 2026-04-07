@@ -1,7 +1,7 @@
 """
 Games / Odds Routes
 Serves today's NBA matchups with betting odds.
-Uses TheOdds API when THEODDS_API_KEY is set; falls back to mock data.
+Uses TheOdds API when THE_ODDS_API_KEY is set; falls back to mock data.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ def _fmt_ml(val: int | None) -> str:
 
 
 def _fetch_live_games() -> list[dict]:
-    api_key = os.getenv("THEODDS_API_KEY", "").strip()
+    api_key = os.getenv("THE_ODDS_API_KEY", "").strip()
     if not api_key:
         return []
     try:
@@ -191,10 +191,16 @@ def _fetch_live_games() -> list[dict]:
 
 
 def _build_matchups_from_slate() -> list[dict]:
-    """Generate mock matchups seeded with teams from the latest uploaded slate."""
+    """Build matchups from the latest uploaded slate using real home/away assignments.
+
+    Reads the `matchups` field stored in the slate index (populated during upload
+    from the slate CSV's Game/Game Info column, format AWAY@HOME).  Falls back to
+    the `teams` list with deterministic pairing if matchups are absent (older slates).
+    """
+    import random
+
     try:
         slates_dir = Path(__file__).parent.parent / "uploads" / "slates"
-        # Slates are stored per-user under uploads/slates/{user_id}/index.json
         all_slates: list[dict] = []
         if slates_dir.exists():
             for user_dir in slates_dir.iterdir():
@@ -206,38 +212,45 @@ def _build_matchups_from_slate() -> list[dict]:
                         )
                     except Exception:
                         pass
-        slates = all_slates
-        if not slates:
+        if not all_slates:
             return []
-        latest = sorted(slates, key=lambda s: s.get("created_at", ""), reverse=True)[0]
-        teams: list[str] = latest.get("teams", [])
-        if len(teams) < 2:
-            return []
+        latest = sorted(all_slates, key=lambda s: s.get("created_at", ""), reverse=True)[0]
 
-        import random
+        # Prefer `matchups` (added at upload time — real home/away from slate CSV)
+        raw_matchups: list[dict] = latest.get("matchups", [])
+
+        if not raw_matchups:
+            # Fallback: pair teams in sorted order (deterministic, no random shuffle)
+            teams: list[str] = sorted(latest.get("teams", []))
+            if len(teams) < 2:
+                return []
+            raw_matchups = [
+                {"away": teams[i], "home": teams[i + 1]}
+                for i in range(0, len(teams) - 1, 2)
+            ]
+
         rng = random.Random(42)
-        shuffled = list(teams)
-        rng.shuffle(shuffled)
-        matchups = []
         times = ["7:00 PM ET", "7:30 PM ET", "8:00 PM ET", "8:30 PM ET", "9:00 PM ET", "10:00 PM ET", "10:30 PM ET"]
-        for i in range(0, len(shuffled) - 1, 2):
-            home, away = shuffled[i], shuffled[i + 1]
+        result = []
+        for idx, m in enumerate(raw_matchups):
+            home = m.get("home", "")
+            away = m.get("away", "")
+            if not home or not away:
+                continue
             spread = round(rng.uniform(-9.5, 9.5) * 2) / 2
             total = round(rng.uniform(215, 237) * 2) / 2
             home_ml_abs = rng.randint(105, 380)
-            home_ml = -home_ml_abs if spread < 0 else home_ml_abs
-            away_ml = -home_ml_abs if home_ml > 0 else home_ml_abs
-            matchups.append({
+            result.append({
                 "id": f"{home}_{away}",
                 "home_team": home, "away_team": away,
                 "home_abbr": home, "away_abbr": away,
-                "time": times[len(matchups) % len(times)],
+                "time": times[idx % len(times)],
                 "spread_home": spread,
                 "total": total,
                 "home_ml": -home_ml_abs if spread < 0 else home_ml_abs,
                 "away_ml": home_ml_abs if spread < 0 else -home_ml_abs,
             })
-        return matchups
+        return result
     except Exception:
         return []
 

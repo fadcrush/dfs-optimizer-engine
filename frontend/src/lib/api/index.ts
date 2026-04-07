@@ -48,6 +48,7 @@ export type PlayerProjection = {
   projection: number
   floor: number
   ceiling: number
+  std_dev: number
   value: number
   ownership: number
 }
@@ -171,6 +172,69 @@ export async function runFDOptimizer(
   }
   const data = (await res.json()) as FDOptimizerResponse
   return { success: true, data }
+}
+
+// ---------------------------------------------------------------------------
+// Async optimizer — submits to Celery queue, returns task_id for polling
+// ---------------------------------------------------------------------------
+
+export type AsyncOptimizerSubmitResponse = {
+  task_id: string
+  status: string
+}
+
+export async function runOptimizerAsync(
+  file: File,
+  params: {
+    numLineups: number
+    maxExposure: number
+    numUnique?: number
+    site?: 'FD' | 'DK'
+    contestType?: string
+    outTeams?: string[]
+    outPlayers?: string[]
+    chalkThreshold?: number
+    projectionOverrides?: Record<string, number>
+    lockedPlayers?: string[]
+  },
+): Promise<{ success: boolean; taskId?: string; error?: string; planGated?: boolean }> {
+  const form = new FormData()
+  form.append('file', file)
+
+  const url = new URL(API_BASE + '/api/optimizer/run-async')
+  url.searchParams.set('site', params.site ?? 'FD')
+  url.searchParams.set('sport', 'NBA')
+  url.searchParams.set('n_lineups', String(params.numLineups))
+  url.searchParams.set('max_exposure', String(params.maxExposure))
+  if (params.numUnique !== undefined) {
+    url.searchParams.set('num_unique', String(params.numUnique))
+  }
+  if (params.contestType) {
+    url.searchParams.set('contest_type', params.contestType)
+  }
+  if (params.outTeams && params.outTeams.length > 0) {
+    url.searchParams.set('out_teams', params.outTeams.join(','))
+  }
+  if (params.outPlayers && params.outPlayers.length > 0) {
+    url.searchParams.set('out_players', params.outPlayers.join(','))
+  }
+  if (params.chalkThreshold && params.chalkThreshold > 0) {
+    url.searchParams.set('chalk_threshold', String(params.chalkThreshold))
+  }
+  if (params.projectionOverrides && Object.keys(params.projectionOverrides).length > 0) {
+    url.searchParams.set('projection_overrides', JSON.stringify(params.projectionOverrides))
+  }
+  if (params.lockedPlayers && params.lockedPlayers.length > 0) {
+    url.searchParams.set('locked_players', params.lockedPlayers.join(','))
+  }
+
+  const res = await fetch(url.toString(), { method: 'POST', body: form })
+  if (!res.ok) {
+    const errorText = await getApiErrorMessage(res)
+    return { success: false, error: errorText, planGated: res.status === 403 }
+  }
+  const data = (await res.json()) as AsyncOptimizerSubmitResponse
+  return { success: true, taskId: data.task_id }
 }
 
 // ---------------------------------------------------------------------------
@@ -524,7 +588,19 @@ export async function batchLateSwap(
   if (params.contest_type) url.searchParams.set('contest_type', params.contest_type)
   if (params.diversity_factor != null) url.searchParams.set('diversity_factor', String(params.diversity_factor))
 
-  const res = await fetch(url.toString(), { method: 'POST', body: form })
+  const ctrl = new AbortController()
+  const tid = setTimeout(() => ctrl.abort(), 90_000)   // 90s — pipeline can take ~80s
+  let res: Response
+  try {
+    res = await fetch(url.toString(), { method: 'POST', body: form, signal: ctrl.signal })
+  } catch (err) {
+    clearTimeout(tid)
+    const msg = err instanceof DOMException && err.name === 'AbortError'
+      ? 'Batch swap timed out (>90s) — try again or reduce lineups'
+      : 'Network error during batch swap'
+    return { success: false, error: msg }
+  }
+  clearTimeout(tid)
   if (!res.ok) {
     const errMsg = await getApiErrorMessage(res)
     return { success: false, error: errMsg, planGated: res.status === 403 }

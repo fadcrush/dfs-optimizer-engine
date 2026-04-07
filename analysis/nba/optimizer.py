@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from pulp import (
@@ -14,6 +15,9 @@ from pulp import (
     PULP_CBC_CMD,
     PulpSolverError,
 )
+
+if TYPE_CHECKING:
+    from analysis.core.game_state import PlayerGameState
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +171,7 @@ def optimize_portfolio(
     locks: list[str] | None = None,
     fades: list[str] | None = None,
     stack_rules: StackRule | None = None,
+    game_state: "dict[str, PlayerGameState] | None" = None,
 ) -> pd.DataFrame:
     """
     Strict roster optimizer for DK and FD with diversification.
@@ -190,6 +195,11 @@ def optimize_portfolio(
         Dict of {DFS_ID: min_lineup_count}.  Forces a player to appear
         in at least this many lineups (hard LP constraint added once the
         floor is reached up from below).
+    game_state
+        Optional per-player canonical game state (from ``compute_game_state``).
+        Players whose ``started_flag`` is True are automatically added to the
+        locked set — a player whose game has tipped off is forced into every
+        lineup (they are already playing; the DFS site locks them).
     """
 
     site = site.upper().strip()
@@ -249,6 +259,16 @@ def optimize_portfolio(
         low = lock.lower().strip()
         if low in name_to_id:
             locked_ids.add(name_to_id[low])
+
+    # Phase 1 — canonical game state: auto-lock players whose game has started.
+    # A started player is already competing; DFS sites prevent removing them.
+    if game_state:
+        for gs_name, gs in game_state.items():
+            if gs.started_flag:
+                pid = name_to_id.get(gs_name.lower().strip())
+                if pid:
+                    locked_ids.add(pid)
+                    log.debug("Auto-locked started player: %s (%s)", gs_name, pid)
 
     # Eligibility lookup — O(n) vs O(n²) df.loc scan
     elig = {

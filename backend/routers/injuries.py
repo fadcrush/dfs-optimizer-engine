@@ -41,6 +41,7 @@ from analysis.shared.injury_utils import (
     invalidate_cache,
 )
 from analysis.core.injury_intelligence import InjuryIntelligenceService
+from analysis.core.ownership_enrichment import enrich_beneficiary_list
 from analysis.shared.db import get_conn, write_lock
 
 log = logging.getLogger(__name__)
@@ -236,17 +237,23 @@ async def force_refresh(current_user=Depends(get_current_user)):
 async def slate_injury_board(
     slate_date: Optional[str] = None,
     min_impact: float = 0.15,
+    site: str = "DK",
+    chalk_threshold: float = 35.0,
 ):
     """
     Return the injury board for the current (or given) slate.
 
     Enriches player_injury_state with top beneficiaries and scenarios.
     Filters to players with non-trivial probability of not playing fully
-    (1 - p_play >= min_impact).
+    (1 - p_play >= min_impact).  Beneficiaries are further annotated with
+    ownership-awareness fields from ownership_history.duckdb.
 
     Query params:
-      slate_date  : ISO-date string (default: today)
-      min_impact  : minimum (1 - p_play) threshold (default 0.15)
+      slate_date      : ISO-date string (default: today)
+      min_impact      : minimum (1 - p_play) threshold (default 0.15)
+      site            : DFS site for ownership lookup — 'DK' or 'FD' (default 'DK')
+      chalk_threshold : ownership % at or above which a replacement is flagged
+                        'chalk' (default 35.0)
     """
     if not _NBA_NEWS_DB.exists():
         return {"injuries": [], "count": 0, "slate_date": slate_date or "today"}
@@ -386,7 +393,35 @@ async def slate_injury_board(
             "urgency": urgency,
             "scenarios": scenarios,
             "beneficiaries": bens,
+            "salary_freed": 0.0,  # populated by ownership enrichment below
         })
+
+    # ------------------------------------------------------------------
+    # Ownership enrichment: annotate beneficiaries + compute salary_freed
+    # ------------------------------------------------------------------
+    injured_lookup = {
+        inj["player_id"]: {"player_name": inj["player_name"]}
+        for inj in injuries
+    }
+    flat_bens: list[dict] = [
+        {**b, "injured_player_id": inj["player_id"]}
+        for inj in injuries
+        for b in inj.get("beneficiaries", [])
+    ]
+    if flat_bens:
+        enriched_bens, salary_freed_map = enrich_beneficiary_list(
+            flat_bens,
+            injured_lookup=injured_lookup,
+            site=site,
+            chalk_threshold=chalk_threshold,
+        )
+        by_inj: dict[str, list] = {}
+        for b in enriched_bens:
+            by_inj.setdefault(str(b.get("injured_player_id", "")), []).append(b)
+        for inj in injuries:
+            pid = inj["player_id"]
+            inj["beneficiaries"] = by_inj.get(pid, inj.get("beneficiaries", []))
+            inj["salary_freed"] = salary_freed_map.get(pid, 0.0)
 
     return {
         "injuries": injuries,
@@ -404,16 +439,21 @@ async def slate_injury_board(
 async def injury_beneficiaries(
     player_id: Optional[str] = None,
     limit: int = 20,
+    site: str = "DK",
+    chalk_threshold: float = 35.0,
 ):
     """
-    Return injury beneficiaries.
+    Return injury beneficiaries enriched with ownership-awareness fields.
 
     When player_id is provided: returns beneficiaries for that specific injured player.
     When omitted: returns the top-N beneficiaries across all injured players.
 
     Query params:
-      player_id : injured player's ID (optional)
-      limit     : max results (default 20)
+      player_id       : injured player's ID (optional)
+      limit           : max results (default 20)
+      site            : DFS site for ownership lookup — 'DK' or 'FD' (default 'DK')
+      chalk_threshold : ownership % at or above which a replacement is flagged
+                        'chalk' (default 35.0)
     """
     if not _NBA_NEWS_DB.exists():
         return {"beneficiaries": [], "count": 0}
@@ -473,6 +513,22 @@ async def injury_beneficiaries(
             "reason_codes": reasons,
             "generated_at": _ts(row.get("generated_at")),
         })
+
+    # ------------------------------------------------------------------
+    # Ownership enrichment
+    # ------------------------------------------------------------------
+    if results:
+        injured_lookup = {
+            r["injured_player_id"]: {"player_name": r.get("injured_player_name", "")}
+            for r in results
+            if r.get("injured_player_id")
+        }
+        results, _ = enrich_beneficiary_list(
+            results,
+            injured_lookup=injured_lookup,
+            site=site,
+            chalk_threshold=chalk_threshold,
+        )
 
     return {"beneficiaries": results, "count": len(results)}
 

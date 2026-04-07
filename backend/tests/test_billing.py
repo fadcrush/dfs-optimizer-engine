@@ -342,3 +342,85 @@ class TestStripeWebhook:
         )
         assert response.status_code == 200
         assert response.json() == {"received": True}
+
+    def test_webhook_503_when_secret_missing(self, db_session, test_user):
+        """Webhook must refuse to process events when STRIPE_WEBHOOK_SECRET is not set."""
+        app = FastAPI()
+        app.include_router(billing_router)
+        app.dependency_overrides[get_db] = lambda: db_session
+        payload_bytes = json.dumps({
+            "type": "checkout.session.completed",
+            "data": {"object": {"metadata": {"user_id": test_user.id}, "subscription": "sub_x"}},
+        }).encode()
+        with patch.object(billing_module, "_WEBHOOK_SECRET", ""):
+            client = TestClient(app, raise_server_exceptions=False)
+            response = client.post(
+                "/billing/webhook",
+                content=payload_bytes,
+                headers={"Content-Type": "application/json", "stripe-signature": ""},
+            )
+        assert response.status_code == 503
+        assert "STRIPE_WEBHOOK_SECRET" in response.json()["detail"]
+
+    def test_subscription_updated_active_restores_past_due(self, db_session, pro_user):
+        """customer.subscription.updated with status=active restores a past_due user."""
+        pro_user.subscription_status = "past_due"
+        db_session.commit()
+
+        response = self._make_event(
+            db_session, pro_user.id,
+            "customer.subscription.updated",
+            {
+                "id": pro_user.stripe_subscription_id,
+                "customer": pro_user.stripe_customer_id,
+                "status": "active",
+            },
+        )
+        assert response.status_code == 200
+        db_session.refresh(pro_user)
+        assert pro_user.subscription_status == "active"
+        assert pro_user.tier == "pro"
+
+    def test_subscription_updated_past_due_marks_past_due(self, db_session, pro_user):
+        """customer.subscription.updated with status=past_due marks the user past_due."""
+        response = self._make_event(
+            db_session, pro_user.id,
+            "customer.subscription.updated",
+            {
+                "id": pro_user.stripe_subscription_id,
+                "customer": pro_user.stripe_customer_id,
+                "status": "past_due",
+            },
+        )
+        assert response.status_code == 200
+        db_session.refresh(pro_user)
+        assert pro_user.subscription_status == "past_due"
+        assert pro_user.tier == "pro"  # tier unchanged by past_due
+
+    def test_invoice_paid_restores_active(self, db_session, pro_user):
+        """invoice.paid restores active status after a past_due state."""
+        pro_user.subscription_status = "past_due"
+        db_session.commit()
+
+        response = self._make_event(
+            db_session, pro_user.id,
+            "invoice.paid",
+            {"customer": pro_user.stripe_customer_id},
+        )
+        assert response.status_code == 200
+        db_session.refresh(pro_user)
+        assert pro_user.subscription_status == "active"
+
+    def test_invoice_paid_noop_when_already_active(self, db_session, pro_user):
+        """invoice.paid on an already-active user is idempotent and harmless."""
+        pro_user.subscription_status = "active"
+        db_session.commit()
+
+        response = self._make_event(
+            db_session, pro_user.id,
+            "invoice.paid",
+            {"customer": pro_user.stripe_customer_id},
+        )
+        assert response.status_code == 200
+        db_session.refresh(pro_user)
+        assert pro_user.subscription_status == "active"

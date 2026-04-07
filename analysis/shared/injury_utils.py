@@ -82,7 +82,7 @@ def load_injury_status(*, force: bool = False) -> pd.DataFrame:
         return empty
 
     try:
-        con = get_conn(DB_PATH)
+        con = get_conn(DB_PATH, read_only=True)
         df = con.execute("""
             SELECT
                 player_id,

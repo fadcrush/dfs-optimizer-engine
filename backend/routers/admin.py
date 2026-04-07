@@ -3,7 +3,7 @@ Admin API — user management and platform metrics.
 All routes require is_admin=True on the authenticated user.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -23,8 +23,8 @@ def admin_stats(
     db: Session = Depends(get_db),
 ):
     """Return platform-level metrics: user counts and rough MRR."""
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
     total_users = db.query(func.count(User.id)).scalar() or 0
     pro_users = (

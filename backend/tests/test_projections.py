@@ -25,10 +25,10 @@ _DK_CSV = (
 _FAKE_PROJECTIONS = [
     {"dfs_id": "11111111", "name": "LeBron James", "position": "SF",
      "team": "LAL", "opponent": "GSW", "salary": 9000,
-     "projection": 45.5, "floor": 34.1, "ceiling": 59.2, "value": 5.06, "ownership": 15.0},
+     "projection": 45.5, "floor": 34.1, "ceiling": 59.2, "std_dev": 9.1, "value": 5.06, "ownership": 15.0},
     {"dfs_id": "22222222", "name": "Nikola Jokic", "position": "C",
      "team": "DEN", "opponent": "PHX", "salary": 10000,
-     "projection": 50.0, "floor": 37.5, "ceiling": 65.0, "value": 5.0, "ownership": 22.0},
+     "projection": 50.0, "floor": 37.5, "ceiling": 65.0, "std_dev": 10.0, "value": 5.0, "ownership": 22.0},
 ]
 
 _FAKE_GENERATE_RESULT = {
@@ -249,3 +249,97 @@ def test_download_returns_csv(make_authed_client, isolated_upload_dirs) -> None:
     resp = client.get("/api/projections/download/proj.csv")
     assert resp.status_code == 200
     assert "LeBron" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Canonical projection contract — verifies every canonical field is present
+# ---------------------------------------------------------------------------
+
+_CANONICAL_FIELDS = ("projection", "floor", "ceiling", "std_dev", "value", "ownership")
+
+
+def test_run_response_includes_canonical_projection_fields(make_authed_client, monkeypatch) -> None:
+    """POST /run must return all canonical projection fields in every row."""
+    from routers import projections as proj_router
+
+    monkeypatch.setattr(proj_router, "save_slate_file", _fake_save_slate)
+    monkeypatch.setattr(proj_router, "generate_projections", _fake_generate)
+    monkeypatch.setattr(proj_router, "projections_to_csv", _fake_projections_to_csv)
+    monkeypatch.setattr(proj_router, "save_projection_file", _fake_save_projection)
+
+    client = make_authed_client(proj_router.router)
+    resp = client.post(
+        "/api/projections/run",
+        files={"file": ("slate.csv", BytesIO(_DK_CSV), "text/csv")},
+        params={"site": "DK"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["success"] is True, "response must report success"
+
+    projections = data.get("projections", [])
+    assert len(projections) > 0, "projections list must be non-empty"
+
+    for row in projections:
+        for field in _CANONICAL_FIELDS:
+            assert field in row, f"canonical field '{field}' missing from projection row: {row}"
+        # numeric sanity: floor ≤ projection ≤ ceiling
+        assert row["floor"] <= row["projection"], (
+            f"floor ({row['floor']}) must be ≤ projection ({row['projection']})"
+        )
+        assert row["projection"] <= row["ceiling"], (
+            f"projection ({row['projection']}) must be ≤ ceiling ({row['ceiling']})"
+        )
+        assert row["std_dev"] >= 0, "std_dev must be non-negative"
+        assert row["value"] >= 0, "value must be non-negative"
+        assert row["ownership"] >= 0, "ownership must be non-negative"
+
+
+def test_run_projection_algorithm_is_canonical(make_authed_client, monkeypatch) -> None:
+    """POST /run must advertise the canonical algorithm, never a DEV placeholder."""
+    from routers import projections as proj_router
+
+    monkeypatch.setattr(proj_router, "save_slate_file", _fake_save_slate)
+    monkeypatch.setattr(proj_router, "generate_projections", _fake_generate)
+    monkeypatch.setattr(proj_router, "projections_to_csv", _fake_projections_to_csv)
+    monkeypatch.setattr(proj_router, "save_projection_file", _fake_save_projection)
+
+    client = make_authed_client(proj_router.router)
+    resp = client.post(
+        "/api/projections/run",
+        files={"file": ("slate.csv", BytesIO(_DK_CSV), "text/csv")},
+        params={"site": "DK"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    algorithm = data.get("algorithm", "")
+    assert "DEV" not in algorithm.upper(), (
+        f"algorithm field must not indicate a DEV placeholder, got: {algorithm!r}"
+    )
+
+
+def test_generate_from_upload_response_includes_canonical_fields(
+    make_authed_client, monkeypatch
+) -> None:
+    """POST /generate-from-upload must also return all canonical fields."""
+    from routers import projections as proj_router
+
+    monkeypatch.setattr(proj_router, "save_slate_file", _fake_save_slate)
+    monkeypatch.setattr(proj_router, "generate_projections", _fake_generate)
+    monkeypatch.setattr(proj_router, "projections_to_csv", _fake_projections_to_csv)
+    monkeypatch.setattr(proj_router, "save_projection_file", _fake_save_projection)
+
+    client = make_authed_client(proj_router.router)
+    resp = client.post(
+        "/api/projections/generate-from-upload",
+        files={"file": ("slate.csv", BytesIO(_DK_CSV), "text/csv")},
+        params={"site": "DK"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    projections = data.get("projections", [])
+    assert len(projections) > 0
+
+    for row in projections:
+        for field in _CANONICAL_FIELDS:
+            assert field in row, f"canonical field '{field}' missing: {row}"

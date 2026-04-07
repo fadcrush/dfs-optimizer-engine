@@ -19,11 +19,15 @@ from .defense import build_defense_table, defense_adjustment_for_matchup
 
 def build_baseline_from_slate(slate_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Start from your existing projection slate CSV (like SS/My Proj etc.)
-    and standardize columns to:
-    - Name, Team, Opp, Salary, Base_Proj
+    DEPRECATED — use analysis.core.orchestrator.run_dfs_pipeline() instead.
+    Phase 3 gate: this function must never be called in production.
     """
-    df = slate_df.copy()
+    raise RuntimeError(
+        "DEPRECATED: analysis.nba.projections.build_baseline_from_slate() is not "
+        "part of the production pipeline.  Use "
+        "analysis.core.orchestrator.run_dfs_pipeline() instead."
+    )
+    df = slate_df.copy()  # unreachable — kept to avoid linter removing arg
 
     # Make sure columns exist
     col_map = {}
@@ -46,8 +50,13 @@ def build_baseline_from_slate(slate_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def apply_defensive_adjustments(baseline_df: pd.DataFrame) -> pd.DataFrame:
-    """Apply game-total-based defensive multipliers to Base_Proj."""
-    odds = get_nba_odds()
+    """DEPRECATED — raises RuntimeError. Use run_dfs_pipeline()."""
+    raise RuntimeError(
+        "DEPRECATED: analysis.nba.projections.apply_defensive_adjustments() is not "
+        "part of the production pipeline.  Use "
+        "analysis.core.orchestrator.run_dfs_pipeline() instead."
+    )
+    odds = get_nba_odds()  # unreachable
     defense_df = build_defense_table(odds)
     df = baseline_df.copy()
 
@@ -61,12 +70,16 @@ def apply_defensive_adjustments(baseline_df: pd.DataFrame) -> pd.DataFrame:
 
 def generate_nba_projections_from_slate(slate_df: pd.DataFrame) -> pd.DataFrame:
     """
-    High-level entry:
+    DEPRECATED — raises RuntimeError. Use run_dfs_pipeline().
 
-    1) Start from your slate/projection CSV.
-    2) Build a normalized baseline.
-    3) Apply defensive/pace adjustments.
+    Phase 3 gate: this function is the canonical entry-point guard.
+    Any call here means a caller bypassed the canonical engine.
     """
-    base = build_baseline_from_slate(slate_df)
+    raise RuntimeError(
+        "DEPRECATED: analysis.nba.projections.generate_nba_projections_from_slate() "
+        "is not part of the production pipeline.  Use "
+        "analysis.core.orchestrator.run_dfs_pipeline() instead."
+    )
+    base = build_baseline_from_slate(slate_df)  # unreachable
     adjusted = apply_defensive_adjustments(base)
     return adjusted

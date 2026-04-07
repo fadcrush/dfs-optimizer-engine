@@ -199,18 +199,29 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Health check"""
+    """Root health check — includes scheduler and data pipeline status."""
+    import datetime as _dt
     scheduler_status: dict = {"running": False, "jobs": []}
     try:
         from workers.schedulers.daily import get_scheduler_status
         scheduler_status = get_scheduler_status()
     except Exception:
         pass
+
+    cache_status: dict = {"available": False}
+    try:
+        from analysis.core.projection_cache import get_cache
+        _cache = get_cache()
+        cache_status = {"available": _cache._redis is not None or _cache._duckdb_con is not None}
+    except Exception:
+        pass
+
     return {
         "status": "healthy",
-        "day": "Day 2 - Authentication ✅",
-        "next": "Day 3 - Projections API",
+        "version": "1.0.0",
+        "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "scheduler": scheduler_status,
+        "projection_cache": cache_status,
     }
 
 @app.get("/api/vision")

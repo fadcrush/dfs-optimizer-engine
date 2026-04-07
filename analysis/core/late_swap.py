@@ -16,11 +16,15 @@ the business rules: change detection, eligibility evaluation, and swap scoring.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from analysis.schemas.player import InjuryStatus
+
+if TYPE_CHECKING:
+    from analysis.core.game_state import PlayerGameState
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Status severity ordering (higher = more severe / more actionable)
@@ -108,7 +112,7 @@ class SwapSignal:
     player_name: str
     old_status: str       # InjuryStatus value before (e.g. "ACTIVE")
     new_status: str       # InjuryStatus value after  (e.g. "OUT")
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     source: str = "manual"   # "sportsdata" | "csv" | "manual"
 
     @property
@@ -179,13 +183,13 @@ class LateSwapEngine:
         prev      : Prior snapshot  (empty dict → treat all players as ACTIVE).
         curr      : Current snapshot.
         source    : Label for the data source.
-        timestamp : Override signal timestamp (default: ``datetime.utcnow()``).
+        timestamp : Override signal timestamp (default: ``datetime.now(timezone.utc)``).
 
         Returns
         -------
         List of ``SwapSignal`` sorted by severity descending (most urgent first).
         """
-        ts = timestamp or datetime.utcnow()
+        ts = timestamp or datetime.now(timezone.utc)
         signals: list[SwapSignal] = []
 
         for name, raw_new in curr.items():
@@ -220,6 +224,7 @@ class LateSwapEngine:
         current_lineup_salary: int = 0,
         slot_labels: list[str] | None = None,
         locked: set[str] | None = None,
+        game_state: "dict[str, PlayerGameState] | None" = None,
         max_candidates: int = 15,
         w_proj: float | None = None,
         w_value: float | None = None,
@@ -242,6 +247,10 @@ class LateSwapEngine:
         slot_labels           : Exact slot label(s) the scratched player occupied (e.g. ["PG"]).
                                 When provided, only players eligible for that slot are returned.
         locked                : Set of player names that cannot be used as replacements.
+        game_state            : Optional per-player game state (from ``compute_game_state``).
+                                Candidates whose ``started_flag`` is True are automatically
+                                excluded — a player whose game has already tipped off cannot
+                                be added to a lineup.
         max_candidates        : Maximum number of recommendations to return.
         w_proj / w_value / w_own : Composite score weights (must sum to 1.0).
 
@@ -258,6 +267,14 @@ class LateSwapEngine:
             n.lower() for n in lineup_names
             if n.lower() != scratched_name.lower()
         }
+        # Build started-player exclusion set from canonical game state.
+        # A candidate whose game has tipped off cannot be swapped IN.
+        started_lower: set[str] = set()
+        if game_state:
+            started_lower = {
+                n.lower() for n, s in game_state.items() if s.started_flag
+            }
+
         budget = salary_cap - current_lineup_salary + scratched_salary
 
         scratch_elig  = _eligible_slots(scratched_pos)
@@ -274,6 +291,9 @@ class LateSwapEngine:
             if cand_name.lower() == scratched_name.lower():
                 continue
             if cand_name.lower() in locked_lower:
+                continue
+            # Exclude candidates whose game has already started (canonical game state).
+            if cand_name.lower() in started_lower:
                 continue
 
             cand_salary = int(pd.to_numeric(row.get("Salary", 0), errors="coerce") or 0)

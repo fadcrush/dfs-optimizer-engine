@@ -37,7 +37,7 @@ Typical usage
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -182,9 +182,9 @@ class InjuryWatcher:
         injury_df  : Inject a pre-built DataFrame (used in tests / batch pipelines).
                      When ``None``, calls ``load_injury_status(force=force)``.
         force      : Bypass the 60-second TTL cache in ``load_injury_status``.
-        timestamp  : Override the signal timestamp (defaults to ``datetime.utcnow()``).
+        timestamp  : Override the signal timestamp (defaults to ``datetime.now(timezone.utc)``).
         """
-        ts = timestamp or datetime.utcnow()
+        ts = timestamp or datetime.now(timezone.utc)
 
         if injury_df is None:
             injury_df = load_injury_status(force=force)

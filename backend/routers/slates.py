@@ -9,7 +9,7 @@ import io
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
@@ -81,6 +81,42 @@ def _extract_teams(csv_bytes: bytes) -> list[str]:
         return []
 
 
+def _extract_matchups(csv_bytes: bytes) -> list[dict]:
+    """Parse CSV bytes and return matchup dicts [{away, home}, ...].
+
+    Handles FD 'Game' column ('SAC@CHA') and DK 'Game Info' column
+    ('SAC@CHA 07:00PM ET').  Format is always AWAY@HOME.
+    """
+    _GAME_CANDIDATES = {"game", "game info", "gameinfo"}
+    try:
+        text = csv_bytes.decode("utf-8", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        orig_headers: list[str] = reader.fieldnames or []
+        lower_to_orig = {h.lower().strip(): h for h in orig_headers}
+        game_col = next(
+            (lower_to_orig[lh] for lh in lower_to_orig if lh in _GAME_CANDIDATES),
+            None,
+        )
+        if not game_col:
+            return []
+        seen: dict[str, dict] = {}
+        for row in reader:
+            raw = row.get(game_col, "").strip()
+            if not raw:
+                continue
+            # Strip trailing time info: "SAC@CHA 07:00PM ET" → "SAC@CHA"
+            matchup_part = raw.split()[0]
+            if "@" not in matchup_part:
+                continue
+            away, home = matchup_part.upper().split("@", 1)
+            key = f"{away}@{home}"
+            if key not in seen:
+                seen[key] = {"away": away, "home": home}
+        return list(seen.values())
+    except Exception:
+        return []
+
+
 @router.get("")
 async def list_slates(current_user=Depends(get_current_user)):
     slates = _load_index(_user_id(current_user))
@@ -98,9 +134,10 @@ async def upload_slate(
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a CSV")
 
-    # Read bytes once so we can (a) extract teams, (b) pass to save_slate_file
+    # Read bytes once so we can (a) extract teams/matchups, (b) pass to save_slate_file
     raw_bytes = await file.read()
     teams = _extract_teams(raw_bytes)
+    matchups = _extract_matchups(raw_bytes)
 
     # Reset so save_slate_file can read the file again
     from io import BytesIO
@@ -108,8 +145,8 @@ async def upload_slate(
 
     user_id = _user_id(current_user)
     file_info = await save_slate_file(file, user_id=user_id)
-    created_at = datetime.utcnow().isoformat() + "Z"
-    date_value = slate_date or datetime.utcnow().date().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
+    date_value = slate_date or datetime.now(timezone.utc).date().isoformat()
 
     entry = {
         "id": file_info["file_id"],
@@ -123,6 +160,7 @@ async def upload_slate(
         "status": "active",
         "file_name": file_info["file_name"],
         "teams": teams,
+        "matchups": matchups,
     }
 
     slates = _load_index(user_id)

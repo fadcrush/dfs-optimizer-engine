@@ -139,9 +139,9 @@ def refresh_props(
 
     Returns a summary dict: {status, new_rows, events_fetched, error?}
     """
-    api_key = os.getenv("THEODDS_API_KEY", "").strip()
+    api_key = os.getenv("THE_ODDS_API_KEY", "").strip()
     if not api_key or api_key.lower() in ("your_theodds_key_here", ""):
-        return {"status": "skipped", "reason": "THEODDS_API_KEY not configured"}
+        return {"status": "skipped", "reason": "THE_ODDS_API_KEY not configured"}
 
     target_date = game_date or date.today().isoformat()
 

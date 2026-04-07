@@ -80,6 +80,28 @@ class ProjectionCache:
     ) -> None:
         self._ttl_secs = int(ttl_hours * 3600)
         self._redis = _make_redis_client()
+        # DuckDB fallback: used when Redis is unavailable and a db_path is given.
+        self._duckdb_con = None
+        if self._redis is None and db_path is not None:
+            try:
+                import duckdb
+                import os as _os
+                _path = str(db_path)
+                _os.makedirs(_os.path.dirname(_path) if _os.path.dirname(_path) else ".", exist_ok=True)
+                self._duckdb_con = duckdb.connect(_path)
+                self._duckdb_con.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS projection_cache (
+                        cache_key VARCHAR PRIMARY KEY,
+                        payload   VARCHAR NOT NULL,
+                        expires_at DOUBLE NOT NULL
+                    )
+                    """
+                )
+                log.debug("Projection cache: using DuckDB fallback at %s", _path)
+            except Exception as exc:
+                log.warning("DuckDB fallback unavailable: %s", exc)
+                self._duckdb_con = None
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
@@ -89,6 +111,24 @@ class ProjectionCache:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _parse_payload(raw: str) -> "tuple[pd.DataFrame, str | None]":
+        """Parse a Redis/DuckDB cache payload; return (df, cached_at_iso | None).
+
+        Handles both the legacy format (bare JSON array) and the current
+        envelope format ``{"_v":1,"_cached_at":"...","_data":[...]}``.
+        """
+        import io
+        import json as _json
+        parsed = _json.loads(raw)
+        if isinstance(parsed, list):
+            # Legacy bare-records format — no timestamp available
+            return pd.read_json(io.StringIO(raw), orient="records"), None
+        # Envelope format
+        records = parsed.get("_data", [])
+        df = pd.DataFrame(records) if records else pd.read_json("[]", orient="records")
+        return df, parsed.get("_cached_at")
+
     def get(
         self,
         slate_id: str,
@@ -96,19 +136,46 @@ class ProjectionCache:
         site: str,
     ) -> pd.DataFrame | None:
         """Return cached DataFrame or *None* on cache miss."""
-        if self._redis is None:
-            return None
-        try:
-            raw = self._redis.get(self._key(slate_id, sport, site))
-            if raw is None:
-                log.debug("Cache miss — %s/%s/%s", slate_id, sport, site)
-                return None
-            df = pd.read_json(raw, orient="records")
-            log.info("Cache hit — %s/%s/%s (%d rows)", slate_id, sport, site, len(df))
-            return df
-        except Exception as exc:
-            log.warning("Cache read failed: %s", exc)
-            return None
+        df, _ = self.get_with_meta(slate_id, sport, site)
+        return df
+
+    def get_with_meta(
+        self,
+        slate_id: str,
+        sport: str,
+        site: str,
+    ) -> "tuple[pd.DataFrame | None, str | None]":
+        """Return (DataFrame, cached_at_iso) or (None, None) on cache miss.
+
+        ``cached_at_iso`` is an ISO-8601 UTC string recorded when the entry
+        was written, or *None* for legacy entries that predate this feature.
+        """
+        if self._redis is not None:
+            try:
+                raw = self._redis.get(self._key(slate_id, sport, site))
+                if raw is None:
+                    log.debug("Cache miss — %s/%s/%s", slate_id, sport, site)
+                    return None, None
+                df, cached_at = self._parse_payload(raw)
+                log.info("Cache hit — %s/%s/%s (%d rows)", slate_id, sport, site, len(df))
+                return df, cached_at
+            except Exception as exc:
+                log.warning("Cache read failed: %s", exc)
+                return None, None
+        if self._duckdb_con is not None:
+            try:
+                import time as _time
+                rows = self._duckdb_con.execute(
+                    "SELECT payload FROM projection_cache WHERE cache_key = ? AND expires_at > ?",
+                    [self._key(slate_id, sport, site), _time.time()],
+                ).fetchall()
+                if not rows:
+                    return None, None
+                df, cached_at = self._parse_payload(rows[0][0])
+                return df, cached_at
+            except Exception as exc:
+                log.warning("Cache read (DuckDB) failed: %s", exc)
+        return None, None
 
     def set(
         self,
@@ -119,20 +186,42 @@ class ProjectionCache:
         ttl_hours: float | None = None,
     ) -> bool:
         """Store *df* in the cache under a Redis key with TTL. Returns True on success."""
-        if self._redis is None:
-            return False
-        try:
-            ttl = int((ttl_hours * 3600) if ttl_hours is not None else self._ttl_secs)
-            payload = df.to_json(orient="records", date_format="iso")
-            self._redis.set(self._key(slate_id, sport, site), payload, ex=ttl)
-            log.info(
-                "Cache set — %s/%s/%s (%d rows, TTL %.1fh)",
-                slate_id, sport, site, len(df), ttl / 3600,
-            )
-            return True
-        except Exception as exc:
-            log.warning("Cache write failed: %s", exc)
-            return False
+        ttl = int((ttl_hours * 3600) if ttl_hours is not None else self._ttl_secs)
+        if self._redis is not None:
+            try:
+                import datetime as _dt
+                _cached_at = _dt.datetime.now(_dt.timezone.utc).isoformat()
+                _records = df.to_json(orient="records", date_format="iso")
+                payload = f'{{"_v":1,"_cached_at":"{_cached_at}","_data":{_records}}}'
+                self._redis.set(self._key(slate_id, sport, site), payload, ex=ttl)
+                log.info(
+                    "Cache set — %s/%s/%s (%d rows, TTL %.1fh)",
+                    slate_id, sport, site, len(df), ttl / 3600,
+                )
+                return True
+            except Exception as exc:
+                log.warning("Cache write failed: %s", exc)
+                return False
+        if self._duckdb_con is not None:
+            try:
+                import time as _time
+                import datetime as _dt
+                key = self._key(slate_id, sport, site)
+                _cached_at = _dt.datetime.now(_dt.timezone.utc).isoformat()
+                _records = df.to_json(orient="records", date_format="iso")
+                payload = f'{{"_v":1,"_cached_at":"{_cached_at}","_data":{_records}}}'
+                expires_at = _time.time() + ttl
+                self._duckdb_con.execute(
+                    """
+                    INSERT OR REPLACE INTO projection_cache (cache_key, payload, expires_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    [key, payload, expires_at],
+                )
+                return True
+            except Exception as exc:
+                log.warning("Cache write (DuckDB) failed: %s", exc)
+        return False
 
     def invalidate(
         self,
@@ -141,41 +230,90 @@ class ProjectionCache:
         site: str | None = None,
     ) -> int:
         """Delete one or more cache entries. Returns number of keys deleted."""
-        if self._redis is None:
-            return 0
-        try:
-            if sport and site:
-                keys = [self._key(slate_id, sport, site)]
-            else:
-                # Wildcard scan — safe because the key space is small
-                pattern = f"proj_cache:{slate_id}:*"
-                keys = list(self._redis.scan_iter(pattern))
-            if keys:
-                self._redis.delete(*keys)
-            log.info("Cache invalidated %d keys for slate_id=%s", len(keys), slate_id)
-            return len(keys)
-        except Exception as exc:
-            log.warning("Cache invalidate failed: %s", exc)
-            return 0
+        if self._redis is not None:
+            try:
+                if sport and site:
+                    keys = [self._key(slate_id, sport, site)]
+                else:
+                    pattern = f"proj_cache:{slate_id}:*"
+                    keys = list(self._redis.scan_iter(pattern))
+                if keys:
+                    self._redis.delete(*keys)
+                log.info("Cache invalidated %d keys for slate_id=%s", len(keys), slate_id)
+                return len(keys)
+            except Exception as exc:
+                log.warning("Cache invalidate failed: %s", exc)
+                return 0
+        if self._duckdb_con is not None:
+            try:
+                if sport and site:
+                    self._duckdb_con.execute(
+                        "DELETE FROM projection_cache WHERE cache_key = ?",
+                        [self._key(slate_id, sport, site)],
+                    )
+                    return 1
+                else:
+                    result = self._duckdb_con.execute(
+                        "SELECT COUNT(*) FROM projection_cache WHERE cache_key LIKE ?",
+                        [f"proj_cache:{slate_id}:%"],
+                    ).fetchone()
+                    self._duckdb_con.execute(
+                        "DELETE FROM projection_cache WHERE cache_key LIKE ?",
+                        [f"proj_cache:{slate_id}:%"],
+                    )
+                    return result[0] if result else 0
+            except Exception as exc:
+                log.warning("Cache invalidate (DuckDB) failed: %s", exc)
+        return 0
 
     def purge_expired(self) -> int:
-        """No-op — Redis TTL handles expiry automatically."""
+        """Purge expired entries. Redis handles this natively; DuckDB requires explicit delete."""
+        if self._duckdb_con is not None:
+            try:
+                import time as _time
+                result = self._duckdb_con.execute(
+                    "SELECT COUNT(*) FROM projection_cache WHERE expires_at <= ?",
+                    [_time.time()],
+                ).fetchone()
+                self._duckdb_con.execute(
+                    "DELETE FROM projection_cache WHERE expires_at <= ?",
+                    [_time.time()],
+                )
+                return result[0] if result else 0
+            except Exception as exc:
+                log.warning("Cache purge (DuckDB) failed: %s", exc)
         return 0
 
     def stats(self) -> dict[str, Any]:
         """Return a count of live cache keys."""
-        if self._redis is None:
-            return {"live_entries": 0, "backend": "redis_unavailable"}
-        try:
-            keys = list(self._redis.scan_iter("proj_cache:*"))
-            return {"live_entries": len(keys), "backend": "redis"}
-        except Exception as exc:
-            log.warning("Cache stats failed: %s", exc)
-            return {}
+        if self._redis is not None:
+            try:
+                keys = list(self._redis.scan_iter("proj_cache:*"))
+                return {"live_entries": len(keys), "backend": "redis"}
+            except Exception as exc:
+                log.warning("Cache stats failed: %s", exc)
+                return {}
+        if self._duckdb_con is not None:
+            try:
+                import time as _time
+                result = self._duckdb_con.execute(
+                    "SELECT COUNT(*) FROM projection_cache WHERE expires_at > ?",
+                    [_time.time()],
+                ).fetchone()
+                total = result[0] if result else 0
+                return {"live_entries": total, "total_entries": total, "backend": "duckdb"}
+            except Exception as exc:
+                log.warning("Cache stats (DuckDB) failed: %s", exc)
+        return {"live_entries": 0, "backend": "redis_unavailable"}
 
     def close(self) -> None:
-        """No explicit close needed for Redis client."""
-        pass
+        """Close DuckDB connection if open. Redis client needs no explicit close."""
+        if self._duckdb_con is not None:
+            try:
+                self._duckdb_con.close()
+            except Exception:
+                pass
+            self._duckdb_con = None
 
 
 # ── Module-level singleton ─────────────────────────────────────────────────

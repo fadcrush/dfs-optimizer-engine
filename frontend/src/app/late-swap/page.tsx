@@ -182,9 +182,6 @@ function UploadStep({
 // ---------------------------------------------------------------------------
 const SALARY_CAP: Record<Site, number> = { FD: 60000, DK: 50000 }
 
-// Game-time warning string emitted by the FD importer when dates can't parse
-const GAME_TIME_WARN =
-  'Could not infer FanDuel game start times from this entry template — started-player auto-lock did not run. Use the Player Controls to manually mark out/scratched players (❌) before running Batch Swap.'
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -348,6 +345,61 @@ export default function LateSwapPage() {
     [playerRecs],
   )
 
+  // ── Injury auto-scratch helper ──────────────────────────────────────────
+  const autoScratchFromInjuries = useCallback(async (lineupPlayers: Set<string>): Promise<string[]> => {
+    try {
+      const apiBase =
+        process.env.NEXT_PUBLIC_API_BASE ??
+        process.env.NEXT_PUBLIC_API_URL ??
+        'http://localhost:8000'
+      const ctrl = new AbortController()
+      setTimeout(() => ctrl.abort(), 5000)
+      const res = await fetch(`${apiBase}/api/injuries/summary?sport=nba`, {
+        signal: ctrl.signal,
+      })
+      if (!res.ok) return []
+      const data = await res.json()
+      const out: string[] = []
+      for (const p of (data.players ?? []) as Array<{ player_name: string; status: string }>) {
+        const st = (p.status ?? '').toUpperCase()
+        if (!['OUT', 'O', 'DOUBTFUL', 'D'].includes(st)) continue
+        const name = p.player_name?.trim() ?? ''
+        if (name && lineupPlayers.has(name.toLowerCase())) out.push(name)
+      }
+      return out
+    } catch {
+      return []
+    }
+  }, [])
+
+  // ── Re-fetch injuries and apply auto-scratch to current lineups ────────────
+  const handleRefreshInjuries = useCallback(async (): Promise<string[]> => {
+    if (managedLineups.length === 0) return []
+    const lineupPlayerSet = new Set(
+      managedLineups.flatMap(lu => lu.players.map(p => p.toLowerCase())),
+    )
+    const autoScratched = await autoScratchFromInjuries(lineupPlayerSet)
+    if (autoScratched.length === 0) {
+      setImportWarnings(prev =>
+        [...prev, 'No OUT/DOUBTFUL players found in your lineups — no auto-scratches applied.'].slice(0, 5),
+      )
+      return []
+    }
+    setStatusMap(prev => {
+      const m = new Map(prev)
+      for (const name of autoScratched) {
+        // Always mark OUT players as scratched even if they were locked
+        m.set(name.toLowerCase(), 'scratched')
+      }
+      return m
+    })
+    setImportWarnings(prev => {
+      const msg = `Auto-scratched ${autoScratched.length} OUT player${autoScratched.length > 1 ? 's' : ''}: ${autoScratched.join(', ')}`
+      return [...prev, msg].slice(0, 5)
+    })
+    return autoScratched
+  }, [managedLineups, autoScratchFromInjuries])
+
   // ── Import handler ─────────────────────────────────────────────────────────
   const handleImportCSV = useCallback(
     async (entryFile: File) => {
@@ -368,6 +420,9 @@ export default function LateSwapPage() {
         const effectiveSite = detectedSite ?? site
         if (detectedSite && detectedSite !== site) setSite(detectedSite)
 
+        // ── Injury auto-scratch helper ────────────────────────────────────────
+        // (defined at component scope as autoScratchFromInjuries)
+
         // ── FD path ──────────────────────────────────────────────────────────
         if (effectiveSite === 'FD') {
           const {
@@ -378,6 +433,7 @@ export default function LateSwapPage() {
             lockedByGameTime: csvLockedNames,
             playerMatchups: pm,
             contestSlateDate,
+            gameTimesUnavailable,
           } = importFanDuelEntriesSelfContained(csvText)
 
           if (fdEntries.length === 0) {
@@ -399,14 +455,16 @@ export default function LateSwapPage() {
           let apiEnrichmentSucceeded = false
           const effectiveSlateDate = contestSlateDate ?? new Date()
 
-          if (rawWarnings.includes(GAME_TIME_WARN) && pm.size > 0) {
+          // FD CSVs never include game times (only "AWAY@HOME" matchup strings),
+          // so always attempt backend enrichment to determine which games have started.
+          if (gameTimesUnavailable) {
             try {
               const apiBase =
                 process.env.NEXT_PUBLIC_API_BASE ??
                 process.env.NEXT_PUBLIC_API_URL ??
                 'http://localhost:8000'
               const ctrl = new AbortController()
-              const tid = setTimeout(() => ctrl.abort(), 3000)
+              const tid = setTimeout(() => ctrl.abort(), 8000)
               const gamesRes = await fetch(`${apiBase}/api/games/today`, {
                 signal: ctrl.signal,
               })
@@ -519,10 +577,13 @@ export default function LateSwapPage() {
             return m
           })
 
-          // Strip enrichment warning if API call succeeded
-          const warnings = apiEnrichmentSucceeded
-            ? rawWarnings.filter(w => w !== GAME_TIME_WARN)
-            : rawWarnings
+          // If enrichment failed, warn the user to manually lock started players
+          const warnings = [...rawWarnings]
+          if (gameTimesUnavailable && !apiEnrichmentSucceeded) {
+            warnings.push(
+              'Could not reach the game-schedule API — started-player auto-lock did not run. Use the Player Controls to manually mark out/scratched players (❌) before running Batch Swap.',
+            )
+          }
           setImportWarnings(warnings.slice(0, 5))
 
           const managed: ManagedLineup[] = fdEntries.map((entry, i) => ({
@@ -534,6 +595,26 @@ export default function LateSwapPage() {
             fdEntry: entry,
           }))
           setManagedLineups(managed)
+
+          // Auto-scratch OUT/DOUBTFUL players present in the imported lineups
+          const lineupPlayerSet = new Set(managed.flatMap(lu => lu.players.map(p => p.toLowerCase())))
+          const autoScratched = await autoScratchFromInjuries(lineupPlayerSet)
+          if (autoScratched.length > 0) {
+            setStatusMap(prev => {
+              const m = new Map(prev)
+              for (const name of autoScratched) {
+                // Override 'locked' for confirmed OUT players — they need replacing
+                // even if their game has already started
+                m.set(name.toLowerCase(), 'scratched')
+              }
+              return m
+            })
+            setImportWarnings(prev => {
+              const msg = `Auto-scratched ${autoScratched.length} OUT player${autoScratched.length > 1 ? 's' : ''}: ${autoScratched.join(', ')}`
+              return [...prev, msg].slice(0, 5)
+            })
+          }
+
           setStep('command')
           return
         }
@@ -576,6 +657,24 @@ export default function LateSwapPage() {
           dkEntry: entry,
         }))
         setManagedLineups(managed)
+
+        // Auto-scratch OUT/DOUBTFUL players present in the imported lineups
+        const lineupPlayerSet = new Set(managed.flatMap(lu => lu.players.map(p => p.toLowerCase())))
+        const autoScratched = await autoScratchFromInjuries(lineupPlayerSet)
+        if (autoScratched.length > 0) {
+          setStatusMap(prev => {
+            const m = new Map(prev)
+            for (const name of autoScratched) {
+              m.set(name.toLowerCase(), 'scratched')
+            }
+            return m
+          })
+          setImportWarnings(prev => {
+            const msg = `Auto-scratched ${autoScratched.length} OUT player${autoScratched.length > 1 ? 's' : ''}: ${autoScratched.join(', ')}`
+            return [...prev, msg].slice(0, 5)
+          })
+        }
+
         setStep('command')
       } catch (err) {
         setImportError(err instanceof Error ? err.message : 'Import failed')
@@ -590,11 +689,20 @@ export default function LateSwapPage() {
   const handleBatchSwap = useCallback(async () => {
     if (!slateFile || managedLineups.length === 0) return
 
-    if (scratchedNames.length === 0) {
-      setBatchError(
-        'No scratched players — mark players as scratched (❌) in the Player Controls above, then run again.',
-      )
-      return
+    // If nothing is scratched yet, try auto-refreshing the injury report first.
+    // This handles the case where the DB was locked at import time.
+    let effectiveScratchedNames = scratchedNames
+    if (effectiveScratchedNames.length === 0) {
+      setBatchError('No scratched players — checking injury report…')
+      const refreshed = await handleRefreshInjuries()
+      if (refreshed.length === 0) {
+        setBatchError(
+          'No scratched players — mark players as scratched (❌) in the Player Controls above, then run again.',
+        )
+        return
+      }
+      effectiveScratchedNames = refreshed
+      setBatchError(null)
     }
 
     setBatchLoading(true)
@@ -606,7 +714,7 @@ export default function LateSwapPage() {
       const res = await batchLateSwap(slateFile, {
         site,
         lineups: managedLineups.map(lu => lu.players),
-        scratched: scratchedNames,
+        scratched: effectiveScratchedNames,
         lockedPlayers: lockedNames.length > 0 ? lockedNames : undefined,
         w_proj: wProj,
         w_value: wValue,
@@ -746,6 +854,7 @@ export default function LateSwapPage() {
     diversityFactor,
     fdNameToId,
     dkNameToId,
+    handleRefreshInjuries,
   ])
 
   // ── Export handler ─────────────────────────────────────────────────────────
@@ -754,15 +863,25 @@ export default function LateSwapPage() {
 
     const validationErrors = validateExportReadiness(managedLineups, scratchedSet)
     const blocking = validationErrors.filter(e => e.severity === 'error')
+    const blockingLabels = new Set(blocking.map(e => e.lineup))
+
+    // Skip unresolved lineups rather than blocking the entire export
+    const exportableLineups = blocking.length > 0
+      ? managedLineups.filter(lu => !blockingLabels.has(lu.label))
+      : managedLineups
+
+    if (exportableLineups.length === 0) {
+      setBatchError('No valid lineups to export — all lineups still contain unresolved scratched players.')
+      return
+    }
     if (blocking.length > 0) {
       setBatchError(
-        `Export blocked — ${blocking.length} lineup${blocking.length > 1 ? 's' : ''} still contain scratched players: ${blocking.map(e => e.lineup).join(', ')}`,
+        `Skipped ${blocking.length} lineup${blocking.length > 1 ? 's' : ''} with unresolved scratched players — exporting ${exportableLineups.length} valid lineup${exportableLineups.length > 1 ? 's' : ''}.`,
       )
-      return
     }
 
     if (site === 'FD') {
-      const fdEntries = managedLineups
+      const fdEntries = exportableLineups
         .map(lu => lu.fdEntry)
         .filter((e): e is FDLineupEntry => e != null)
       if (fdEntries.length === 0) {
@@ -780,7 +899,7 @@ export default function LateSwapPage() {
     }
 
     if (site === 'DK') {
-      const dkEntries = managedLineups
+      const dkEntries = exportableLineups
         .map(lu => lu.dkEntry)
         .filter((e): e is DKLineupEntry => e != null)
       if (dkEntries.length > 0) {
@@ -791,7 +910,7 @@ export default function LateSwapPage() {
     }
 
     // Fallback: plain text dump
-    const content = managedLineups
+    const content = exportableLineups
       .map(lu => `=== ${lu.label} ===\n${lu.players.join('\n')}`)
       .join('\n\n')
     downloadFile(content, `all_lineups_${site}_${new Date().toISOString().slice(0, 10)}.txt`)
@@ -1003,6 +1122,7 @@ export default function LateSwapPage() {
                 statuses={statusMap}
                 onSetStatus={setPlayerStatus}
                 onBulkAction={handleBulkAction}
+                onRefreshInjuries={handleRefreshInjuries}
               />
             </div>
           </div>

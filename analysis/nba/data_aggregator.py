@@ -25,7 +25,7 @@ class NBADataAggregator:
     
     def __init__(self):
         # Initialize API clients
-        self.odds_client = TheOddsAPIClient(os.getenv('THEODDS_API_KEY', ''))
+        self.odds_client = TheOddsAPIClient(os.getenv('THE_ODDS_API_KEY', ''))
         self.nba_client = NBAFreeDataClient()  # free, no API key — uses nba_api / stats.nba.com
         
         # Initialize projection engine
