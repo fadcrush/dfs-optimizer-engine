@@ -55,3 +55,11 @@ outputs/
 # Local tool settings
 .claude/
 raw/CLAUDE_AUDIT_EXPORT.txt
+
+frontend/.jest-out/
+output.txt
+project_tree.txt
+code_index.txt
+priority_files.txt
+backend/Book1.xlsx
+backend/*.csv
