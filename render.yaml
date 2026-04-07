@@ -17,6 +17,7 @@ services:
     name: dfs-edge-api
     runtime: docker
     dockerfilePath: ./infra/docker/Dockerfile.backend
+    dockerfileTarget: api
     dockerContext: .
     healthCheckPath: /health
     autoDeploy: true
@@ -66,8 +67,8 @@ services:
     name: dfs-edge-worker
     runtime: docker
     dockerfilePath: ./infra/docker/Dockerfile.backend
+    dockerfileTarget: worker
     dockerContext: .
-    startCommand: celery -A celery_app worker --loglevel=info --concurrency=2
     autoDeploy: true
     plan: starter
     envVars:
