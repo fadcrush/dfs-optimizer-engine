@@ -39,7 +39,6 @@ COPY analysis/      ./analysis/
 COPY backend/       ./backend/
 COPY workers/       ./workers/
 COPY scripts/       ./scripts/
-COPY news_engine/   ./news_engine/
 
 # Runtime directories (overridden by volume mounts in production)
 RUN mkdir -p \
