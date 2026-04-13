@@ -29,7 +29,6 @@ watchPatterns = [
     "backend/**",
     "workers/**",
     "scripts/**",
-    "news_engine/**",
     "infra/docker/Dockerfile.backend",
     "infra/docker/entrypoint.backend.sh",
 ]
