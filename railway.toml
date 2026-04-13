@@ -29,6 +29,8 @@ watchPatterns = [
     "backend/**",
     "workers/**",
     "scripts/**",
+    "Procfile",
+    "railway.toml",
     "infra/docker/Dockerfile.backend",
     "infra/docker/entrypoint.backend.sh",
 ]
