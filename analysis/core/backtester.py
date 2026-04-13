@@ -65,7 +65,7 @@ def _r_squared(actual: pd.Series, predicted: pd.Series) -> float:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_MASTER_DB = (
-    Path(__file__).resolve().parent.parent.parent / "data" / "dfs_master.duckdb"
+    Path(__file__).resolve().parent.parent.parent / "data" / "dfs_edge.duckdb"
 )
 
 
@@ -82,7 +82,7 @@ class ProjectionBacktester:
     game_logs_db_path:
         Path to the database that contains ``player_game_logs``.  When
         ``None`` (default) the same ``db_path`` database is used — useful
-        for testing.  Set to ``data/dfs_master.duckdb`` in production.
+        for testing.  Defaults to ``data/dfs_edge.duckdb``.
     """
 
     db_path: Path = field(default_factory=lambda: _DEFAULT_DB)

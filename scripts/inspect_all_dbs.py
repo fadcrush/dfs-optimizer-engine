@@ -3,7 +3,7 @@ import duckdb, pathlib, sys
 ROOT = pathlib.Path(r"F:\Dev\N_B_A_and_N_F_L\data")
 dbs = {
     "dfs_edge":    ROOT / "dfs_edge.duckdb",
-    "dfs_master":  ROOT / "dfs_master.duckdb",
+
     "contest_results": ROOT / "contest_results.duckdb",
     "projection_cache": ROOT / "projection_cache.duckdb",
     "ownership_history": ROOT / "ownership_history.duckdb",

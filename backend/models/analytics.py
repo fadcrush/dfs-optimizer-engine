@@ -86,6 +86,7 @@ class OwnershipActual(Base):
     __table_args__ = (
         UniqueConstraint("game_date", "site", "player_name", "slate_id", name="uq_ownership_actual"),
         Index("ix_ownership_actuals_date_site", "game_date", "site"),
+        Index("ix_ownership_actuals_predicted_own", "predicted_own"),
     )
 
 

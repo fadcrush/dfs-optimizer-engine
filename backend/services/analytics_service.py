@@ -77,7 +77,7 @@ def init_analytics_tables() -> None:
     picks up ContestResult, ProjectionLog, OwnershipActual.
     """
     if engine is None:
-        log.warning("analytics table init skipped — DATABASE_URL not set.")
+        log.info("analytics table init skipped — DATABASE_URL not set.")
         return
     try:
         from models.analytics import ContestResult, ProjectionLog, OwnershipActual, OwnershipHistory  # noqa: F811
@@ -654,6 +654,7 @@ def _mirror_ownership_to_duckdb(
         """)
 
         inserted = 0
+        skipped = 0
         for _, r in work.iterrows():
             try:
                 con.execute(
@@ -687,9 +688,13 @@ def _mirror_ownership_to_duckdb(
                     ],
                 )
                 inserted += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                skipped += 1
+                if skipped <= 3:
+                    log.warning("DuckDB mirror: skipped row %s — %s", r.get("name", "?"), exc)
         con.close()
+        if skipped:
+            log.warning("DuckDB mirror: %d rows skipped (slate=%s, site=%s)", skipped, slate_id, site.upper())
         log.debug("DuckDB mirror: wrote %d rows (slate=%s, site=%s)", inserted, slate_id, site.upper())
     except Exception as exc:
         log.warning("DuckDB ownership mirror failed (non-fatal): %s", exc)
@@ -808,65 +813,80 @@ def import_ownership_actuals(
 
     merged = df.merge(proj_df, on="player_name", how="left")
 
-    # Write to ownership_actuals in Postgres (upsert on unique constraint)
+    # Write to ownership_actuals in Postgres (batch upsert)
     imported = 0
+    skipped = 0
     try:
+        rows_to_insert = []
         for _, row in merged.iterrows():
             try:
-                stmt = pg_insert(OwnershipActual).values(
-                    game_date=game_date,
-                    site=site.upper(),
-                    player_name=str(row["player_name"]),
-                    actual_own_pct=float(row["actual_own_pct"]),
-                    predicted_own=float(row["predicted_own"]) if pd.notna(row.get("predicted_own")) else None,
-                    proj=float(row["proj"]) if pd.notna(row.get("proj")) else None,
-                    contest_type=contest_type.lower(),
-                    slate_id=slate_id,
-                ).on_conflict_do_update(
-                    constraint="uq_ownership_actual",
-                    set_={
-                        "actual_own_pct": float(row["actual_own_pct"]),
-                        "predicted_own": float(row["predicted_own"]) if pd.notna(row.get("predicted_own")) else None,
-                        "proj": float(row["proj"]) if pd.notna(row.get("proj")) else None,
-                    },
-                )
-                pg_session.execute(stmt)
-                imported += 1
-            except Exception:
-                pass
+                rows_to_insert.append({
+                    "game_date": game_date,
+                    "site": site.upper(),
+                    "player_name": str(row["player_name"]),
+                    "actual_own_pct": float(row["actual_own_pct"]),
+                    "predicted_own": float(row["predicted_own"]) if pd.notna(row.get("predicted_own")) else None,
+                    "proj": float(row["proj"]) if pd.notna(row.get("proj")) else None,
+                    "contest_type": contest_type.lower(),
+                    "slate_id": slate_id,
+                })
+            except Exception as exc:
+                skipped += 1
+                if skipped <= 3:
+                    log.warning("import_ownership_actuals: skipped row %s — %s", row.get("player_name", "?"), exc)
+
+        if rows_to_insert:
+            stmt = pg_insert(OwnershipActual).values(rows_to_insert)
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_ownership_actual",
+                set_={
+                    "actual_own_pct": stmt.excluded.actual_own_pct,
+                    "predicted_own": stmt.excluded.predicted_own,
+                    "proj": stmt.excluded.proj,
+                },
+            )
+            pg_session.execute(stmt)
+            imported = len(rows_to_insert)
         pg_session.commit()
     except Exception as exc:
         pg_session.rollback()
-        log.error("import_ownership_actuals insert failed: %s", exc)
+        log.error("import_ownership_actuals batch insert failed: %s", exc)
     finally:
         pg_session.close()
 
-    # Also write to ownership_history (Postgres) for model training
+    # Also write to ownership_history (Postgres) for model training (batch)
     try:
         from sqlalchemy.dialects.postgresql import insert as _pg_insert2
         hist_session = _pg_session()
         try:
-            for _, r in merged.iterrows():
-                stmt = _pg_insert2(OwnershipHistory).values(
-                    player_name=str(r["player_name"]),
-                    game_date=game_date,
-                    site=site.upper(),
-                    slate_id=slate_id,
-                    actual_own_pct=float(r["actual_own_pct"]),
-                    proj_at_lock=float(r["proj"]) if pd.notna(r.get("proj")) else None,
-                    salary=None,
-                    team_total=None,
-                    is_home=None,
-                    contest_type=contest_type.lower(),
-                    own_source="real",
-                ).on_conflict_do_update(
+            hist_rows = [
+                {
+                    "player_name": str(r["player_name"]),
+                    "game_date": game_date,
+                    "site": site.upper(),
+                    "slate_id": slate_id,
+                    "actual_own_pct": float(r["actual_own_pct"]),
+                    "proj_at_lock": float(r["proj"]) if pd.notna(r.get("proj")) else None,
+                    "salary": None,
+                    "team_total": None,
+                    "is_home": None,
+                    "contest_type": contest_type.lower(),
+                    "own_source": "real",
+                }
+                for _, r in merged.iterrows()
+            ]
+            if hist_rows:
+                stmt = _pg_insert2(OwnershipHistory).values(hist_rows)
+                stmt = stmt.on_conflict_do_update(
                     constraint="uq_ownership_history",
-                    set_={"actual_own_pct": float(r["actual_own_pct"]),
-                          "proj_at_lock": float(r["proj"]) if pd.notna(r.get("proj")) else None},
+                    set_={
+                        "actual_own_pct": stmt.excluded.actual_own_pct,
+                        "proj_at_lock": stmt.excluded.proj_at_lock,
+                    },
                 )
                 hist_session.execute(stmt)
             hist_session.commit()
-            log.info("Wrote %d ownership actuals to training DB", len(merged))
+            log.info("Wrote %d ownership actuals to training DB", len(hist_rows))
         except Exception as exc:
             hist_session.rollback()
             log.warning("Could not write to ownership_history: %s", exc)

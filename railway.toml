@@ -1,0 +1,41 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DFS Edge Pro — Railway deployment config
+#
+# This file configures the PRIMARY service (FastAPI API).
+# Additional services are created in the Railway dashboard:
+#
+#   1. API (this file)      — FastAPI backend   (auto-detected)
+#   2. Worker               — Celery worker     (same repo, SERVICE_TYPE=worker)
+#   3. Redis                — Railway plugin     (add from dashboard)
+#   4. Postgres             — Railway plugin     (add from dashboard)
+#   5. Frontend             — Next.js            (separate service, different Dockerfile)
+#
+# Setup steps:
+#   1. railway login
+#   2. railway init          (or link to existing project)
+#   3. Add Redis plugin      (dashboard → New → Database → Redis)
+#   4. Add Postgres plugin   (dashboard → New → Database → PostgreSQL)
+#   5. Add Worker service    (dashboard → New → GitHub Repo → same repo)
+#      Set SERVICE_TYPE=worker in worker service variables
+#   6. Add Frontend service  (dashboard → New → GitHub Repo → same repo)
+#      Set Dockerfile path to infra/docker/Dockerfile.frontend
+#   7. railway up            (deploy API)
+# ─────────────────────────────────────────────────────────────────────────────
+
+[build]
+dockerfilePath = "infra/docker/Dockerfile.backend"
+watchPatterns = [
+    "analysis/**",
+    "backend/**",
+    "workers/**",
+    "scripts/**",
+    "news_engine/**",
+    "infra/docker/Dockerfile.backend",
+    "infra/docker/entrypoint.backend.sh",
+]
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

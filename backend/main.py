@@ -52,6 +52,7 @@ from routers import health as health_router
 def _run_startup_tasks() -> None:
     """Initialize external services and local storage on API startup."""
     log.info("DFS Edge Pro API starting up")
+    _database_url = os.getenv("DATABASE_URL", "").strip()
 
     # Log presence of load-bearing API keys so silent failures are visible immediately.
     _odds_key = os.getenv("THE_ODDS_API_KEY", "")
@@ -63,11 +64,13 @@ def _run_startup_tasks() -> None:
             "Add THE_ODDS_API_KEY to your .env file (see .env.example)."
         )
 
-    if test_connection():
+    if _database_url and test_connection():
         init_db()
         log.info("Authentication system ready")
-    else:
+    elif _database_url:
         log.warning("Database connection failed — check your .env file")
+    else:
+        log.info("DATABASE_URL not set — running in local no-database mode")
 
     try:
         from workers.schedulers.daily import start_scheduler
@@ -83,7 +86,7 @@ def _run_startup_tasks() -> None:
         from analysis.shared.db import get_conn
 
         _db_dir = _root / "data"
-        for _db_key in ("dfs_edge", "dfs_master", "contest_results", "nba_news"):
+        for _db_key in ("dfs_edge", "contest_results", "nba_news"):
             _db_path = _db_dir / f"{_db_key}.duckdb"
             try:
                 get_conn(_db_path, db_key=_db_key)

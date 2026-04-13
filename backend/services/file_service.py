@@ -124,10 +124,10 @@ async def save_slate_file(file: UploadFile, user_id: str | None = None) -> dict:
 
     print(f"✅ Slate file saved: {file_name}")
 
-    # Trigger injury scrape in background so the response isn't delayed
-    t = threading.Thread(target=_trigger_injury_refresh, daemon=True, name="injury-refresh-on-upload")
-    t.start()
-    log.info("[file_service] Injury refresh triggered in background (thread %s)", t.name)
+    # Injury refresh is now handled synchronously inside the optimizer route
+    # (awaited before run_dfs_pipeline) so it is guaranteed to complete before
+    # the pool filter runs.  The background thread that used to race here has
+    # been removed.
 
     return {
         "file_id": file_id,

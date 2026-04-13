@@ -68,9 +68,22 @@ def job_refresh_injuries() -> None:
         from scripts.jobs.fetch_nba_injuries import ensure_current, DB_PATH  # type: ignore[import]
         from analysis.shared.injury_utils import invalidate_cache, load_injury_status
         from analysis.core.injury_intelligence import sync_injury_intelligence
+        from analysis.shared.db import close_conn
+
         result = ensure_current(db_path=DB_PATH)
+
+        # DuckDB on Windows allows only one connection per file.
+        # ensure_current() holds a cached write connection; release it so
+        # load_injury_status() can open the same file for reading.
+        close_conn(DB_PATH)
+
         invalidate_cache()
-        sync_summary = sync_injury_intelligence(load_injury_status(force=True), source="official_report")
+        injury_df = load_injury_status(force=True)
+
+        # Release the read connection before sync opens a write connection.
+        close_conn(DB_PATH)
+
+        sync_summary = sync_injury_intelligence(injury_df, source="official_report")
         log.info("[scheduler] Injury refresh result: %s", result)
         log.info("[scheduler] Injury intelligence sync: %s", sync_summary)
     except Exception as exc:

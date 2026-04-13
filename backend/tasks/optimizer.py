@@ -143,6 +143,16 @@ def run_optimizer_task(
         file_path, site, n_lineups,
     )
 
+    # Refresh injury data before the pipeline runs.  The Celery worker may be
+    # on a separate process/host, so we can't rely on what the API process
+    # already fetched.  ensure_current() is cheap when the PDF is already current.
+    if sport.upper() == "NBA":
+        try:
+            from workers.schedulers.daily import job_refresh_injuries
+            job_refresh_injuries()
+        except Exception as _inj_exc:
+            log.warning("[task:run_optimizer] Injury refresh failed (non-blocking): %s", _inj_exc)
+
     context = ProjectionContext(
         sport=sport.upper(),
         site=site.upper(),

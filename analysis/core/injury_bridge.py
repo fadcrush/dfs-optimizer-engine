@@ -208,7 +208,7 @@ def _load_intelligence_states(db_path: Path) -> pd.DataFrame:
     """
     try:
         from analysis.shared.db import get_conn
-        conn = get_conn(db_path)
+        conn = get_conn(db_path, read_only=True)
         df = conn.execute(
             """
             SELECT player_id, player_name, team_id, current_status,
@@ -235,7 +235,7 @@ def _load_beneficiary_rows(db_path: Path, injured_player_ids: list[str]) -> pd.D
         return pd.DataFrame()
     try:
         from analysis.shared.db import get_conn
-        conn = get_conn(db_path)
+        conn = get_conn(db_path, read_only=True)
         placeholders = ", ".join("?" for _ in injured_player_ids)
         df = conn.execute(
             f"""

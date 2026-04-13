@@ -88,7 +88,7 @@ class TestOpenDb:
         assert db_path.exists()
 
     def test_stem_inferred_as_key(self, tmp_path):
-        db_path = tmp_path / "dfs_master.duckdb"
+        db_path = tmp_path / "dfs_edge.duckdb"
         conn = open_db(db_path)  # no db_key — inferred from stem
         version = get_schema_version(conn)
         assert version > 0

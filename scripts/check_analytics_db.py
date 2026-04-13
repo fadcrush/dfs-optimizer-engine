@@ -1,9 +1,9 @@
-"""Check analytics tables in dfs_master.duckdb."""
+"""Check analytics tables in dfs_edge.duckdb."""
 import sys
 sys.path.insert(0, '/app')
 from analysis.shared.db import get_conn
 
-conn = get_conn('/app/data/dfs_master.duckdb', db_key='dfs_master')
+conn = get_conn('/app/data/dfs_edge.duckdb', db_key='dfs_edge')
 
 tables = conn.execute("SHOW TABLES").fetchall()
 print("Tables:", [t[0] for t in tables])

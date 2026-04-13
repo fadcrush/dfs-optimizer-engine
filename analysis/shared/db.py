@@ -149,44 +149,7 @@ _MIGRATIONS: dict[str, list[tuple[int, str, str | _MigrationFn]]] = {
         ),
     ],
 
-    # ------------------------------------------------------------------ #
-    # dfs_master.duckdb                                                    #
-    # ------------------------------------------------------------------ #
-    "dfs_master": [
-        (
-            1,
-            "slates table",
-            """
-            CREATE TABLE IF NOT EXISTS slates (
-                slate_id     VARCHAR(40) PRIMARY KEY,
-                sport        VARCHAR(8)  NOT NULL,
-                site         VARCHAR(8)  NOT NULL,
-                slate_date   DATE,
-                file_path    VARCHAR(256),
-                imported_at  TIMESTAMPTZ DEFAULT now()
-            );
-            """,
-        ),
-        (
-            2,
-            "ownership_history table",
-            """
-            CREATE TABLE IF NOT EXISTS ownership_history (
-                id            INTEGER PRIMARY KEY,
-                slate_date    DATE,
-                sport         VARCHAR(8),
-                site          VARCHAR(8),
-                player_name   VARCHAR(100),
-                dfs_id        VARCHAR(40),
-                salary        FLOAT,
-                projection    FLOAT,
-                ownership_pct FLOAT,
-                actual_score  FLOAT,
-                created_at    TIMESTAMPTZ DEFAULT now()
-            );
-            """,
-        ),
-    ],
+    # NOTE: dfs_master.duckdb tables migrated into dfs_edge.duckdb (Phase 4).
 
     # ------------------------------------------------------------------ #
     # projection_cache.duckdb                                              #
@@ -641,6 +604,19 @@ def get_conn(
                 # Stale / closed — fall through to reopen
                 _conn_registry.pop(reg_id, None)
 
+        # DuckDB on Windows only allows a single connection per file.
+        # If a read-only connection is requested but a write connection
+        # already exists for this file, reuse it (writes can do reads).
+        if read_only:
+            write_id = (os.getpid(), str(path), False)
+            write_conn = _conn_registry.get(write_id)
+            if write_conn is not None:
+                try:
+                    write_conn.execute("SELECT 1")
+                    return write_conn
+                except Exception:
+                    _conn_registry.pop(write_id, None)
+
         conn = duckdb.connect(str(path), read_only=read_only)
         if not read_only:
             try:
@@ -657,6 +633,27 @@ def close_all() -> None:
     pid = os.getpid()
     with _registry_lock:
         to_close = [k for k in _conn_registry if k[0] == pid]
+        for k in to_close:
+            try:
+                _conn_registry.pop(k).close()
+            except Exception:
+                pass
+
+
+def close_conn(path: str | Path) -> None:
+    """Close all registry connections for *path* in the current process.
+
+    Useful when a write connection must be released so that another module
+    can open the same DuckDB file (DuckDB on Windows allows only one
+    connection per file, even across read-only / read-write modes).
+    """
+    pid = os.getpid()
+    resolved = str(Path(path).resolve())
+    with _registry_lock:
+        to_close = [
+            k for k in _conn_registry
+            if k[0] == pid and str(Path(k[1]).resolve()) == resolved
+        ]
         for k in to_close:
             try:
                 _conn_registry.pop(k).close()

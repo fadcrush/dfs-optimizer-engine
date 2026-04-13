@@ -5,7 +5,7 @@ import duckdb
 
 db_paths = [
     Path("data/dfs_edge.duckdb"),
-    Path("data/dfs_master.duckdb"),
+
     Path("data/nba_news.duckdb"),
 ]
 

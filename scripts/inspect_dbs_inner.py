@@ -4,7 +4,7 @@ sys.path.insert(0, '/app')
 ROOT = pathlib.Path('/app/data')
 dbs = {
     "dfs_edge":         ROOT / "dfs_edge.duckdb",
-    "dfs_master":       ROOT / "dfs_master.duckdb",
+
     "contest_results":  ROOT / "contest_results.duckdb",
     "projection_cache": ROOT / "projection_cache.duckdb",
 }

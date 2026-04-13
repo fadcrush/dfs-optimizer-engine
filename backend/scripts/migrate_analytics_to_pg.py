@@ -51,9 +51,9 @@ def main() -> None:
     log.info("Postgres tables created / verified.")
 
     # Open DuckDB source
-    master_path = _ROOT / "data" / "dfs_master.duckdb"
+    master_path = _ROOT / "data" / "dfs_edge.duckdb"
     if not master_path.exists():
-        log.warning("No dfs_master.duckdb found at %s — nothing to migrate.", master_path)
+        log.warning("No dfs_edge.duckdb found at %s — nothing to migrate.", master_path)
         return
 
     try:

@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 from contextlib import contextmanager
 import logging
 
+from alembic.config import Config as AlembicConfig
+from alembic import command as alembic_command
+
 log = logging.getLogger(__name__)
 
 # Always load from the repo root .env — regardless of where the process was launched.
@@ -41,7 +44,7 @@ if DATABASE_URL:
             _engine_err,
         )
 else:
-    log.warning(
+    log.info(
         "DATABASE_URL not set — database-backed routes will be unavailable. "
         "Set DATABASE_URL in .env to enable authentication and slate storage."
     )
@@ -79,46 +82,38 @@ def get_db_context():
 
 
 def init_db():
-    """Initialize database — create all tables."""
+    """Initialize database — run Alembic migrations to latest revision."""
     if engine is None:
-        log.warning("[db] Skipping init_db — DATABASE_URL not set.")
+        log.info("[db] Skipping init_db — DATABASE_URL not set.")
         return False
-    from models.user import Base
-    # Import analytics models so Base.metadata.create_all picks them up
-    import models.analytics  # noqa: F401
-    log.info("[db] Initialising database...")
+    log.info("[db] Running Alembic migrations...")
     try:
-        Base.metadata.create_all(bind=engine)
-        # Idempotent column additions for existing databases (e.g. Stripe fields
-        # added after the initial table was created).
-        _ddls = [
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token_hash VARCHAR",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMP",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_runs_used INTEGER DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_runs_reset_date VARCHAR",
-        ]
-        with engine.connect() as conn:
-            for ddl in _ddls:
-                try:
-                    conn.execute(text(ddl))
-                except Exception:
-                    pass  # dialect may not support IF NOT EXISTS (SQLite < 3.37)
-            conn.commit()  # DDL must be committed explicitly in SQLAlchemy 2.x
-            conn.execute(text("SELECT 1"))
-        log.info("[db] Database tables ready.")
+        _backend_dir = Path(__file__).resolve().parent.parent
+        alembic_cfg = AlembicConfig(str(_backend_dir / "alembic.ini"))
+        alembic_cfg.set_main_option("script_location", str(_backend_dir / "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+        alembic_command.upgrade(alembic_cfg, "head")
+        log.info("[db] Database migrations applied — schema is up to date.")
         return True
     except Exception as e:
-        print(f"[db] Database init failed: {e}")
-        return False
+        log.error("[db] Alembic migration failed: %s", e)
+        # Fall back to create_all so the app can still start on a fresh DB
+        log.info("[db] Falling back to metadata.create_all()...")
+        try:
+            from models.user import Base
+            import models.analytics  # noqa: F401
+            Base.metadata.create_all(bind=engine)
+            log.info("[db] Fallback create_all succeeded.")
+            return True
+        except Exception as fallback_err:
+            log.error("[db] Fallback create_all also failed: %s", fallback_err)
+            return False
 
 
 def test_connection():
     """Test if database connection works."""
     if engine is None:
-        print("[db] No DATABASE_URL — skipping connection test.")
+        log.info("[db] No DATABASE_URL — skipping connection test.")
         return False
     try:
         with engine.connect() as conn:

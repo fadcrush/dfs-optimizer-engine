@@ -5,6 +5,7 @@ Optimizer Routes - Generate lineups and optional Monte Carlo simulations
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 import pandas as pd
@@ -25,8 +26,24 @@ from services.late_swap_service import (
     scoring_projection,
 )
 
+log = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/optimizer", tags=["Optimizer"])
 
+
+def _run_injury_refresh() -> None:
+    """Fetch the latest NBA injury PDF and sync intelligence tables.
+
+    Called synchronously (via asyncio.to_thread) before every optimizer run so
+    the pool filter always excludes today's OUT/Q players.  Uses the scheduler
+    job directly — which calls both ``ensure_current()`` (skips if PDF already
+    current) AND ``sync_injury_intelligence()`` (populates player_injury_state).
+    """
+    try:
+        from workers.schedulers.daily import job_refresh_injuries
+        job_refresh_injuries()
+    except Exception as exc:
+        log.warning("[optimizer] Injury refresh failed (non-blocking): %s", exc)
 
 def _user_id(user) -> str:
     if hasattr(user, "id"):
@@ -158,6 +175,12 @@ async def run_optimizer(
 
     user_id = _user_id(current_user)
     file_info = await save_slate_file(file, user_id=user_id)
+
+    # Refresh injury data synchronously before running the pipeline so the
+    # pool filter always has current OUT/Q designations.  Uses the scheduler
+    # job which calls ensure_current() + sync_injury_intelligence().
+    if sport.upper() == "NBA":
+        await asyncio.to_thread(_run_injury_refresh)
 
     # Build injuries dict from out_players query param
     injuries: dict[str, str] = {}
@@ -332,6 +355,11 @@ async def run_optimizer_async(
 
     user_id = _user_id(current_user)
     file_info = await save_slate_file(file, user_id=user_id)
+
+    # Refresh injury data synchronously before the Celery task is dispatched so
+    # the worker always has current OUT/Q designations in nba_news.duckdb.
+    if sport.upper() == "NBA":
+        await asyncio.to_thread(_run_injury_refresh)
 
     # Build injuries map
     injuries: dict[str, str] = {}

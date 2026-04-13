@@ -2,7 +2,7 @@
 User Model - The foundation of our 100K+ user base!
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, Integer
+from sqlalchemy import Column, Index, String, Boolean, DateTime, Integer
 from sqlalchemy.orm import declarative_base  # sqlalchemy.ext.declarative is deprecated
 from datetime import datetime, timezone
 import uuid
@@ -53,6 +53,12 @@ class User(Base):
 
     # Admin flag
     is_admin = Column(Boolean, default=False)
+
+    __table_args__ = (
+        Index("ix_users_tier", "tier"),
+        Index("ix_users_created_at", "created_at"),
+        Index("ix_users_subscription_status", "subscription_status"),
+    )
 
     def __repr__(self):
         return f"<User {self.email} - {self.tier}>"
